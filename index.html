@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>SWG Returns Launcher</title>
+  <title>SWG Epic Launcher</title>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
@@ -23,12 +23,9 @@
       user-select: none;
     }
 
-    /* IMPORTANT: do NOT make the whole body draggable */
     body { -webkit-app-region: no-drag; }
-
     * { box-sizing: border-box; }
 
-    /* Background is the drag region */
     .background-wrapper {
       position: fixed;
       inset: 0;
@@ -45,7 +42,6 @@
       z-index: 2;
     }
 
-    /* Ensure interactive elements are clickable */
     button, select, input, .play-button {
       -webkit-app-region: no-drag;
     }
@@ -70,10 +66,8 @@
       line-height: 1;
     }
     .win-button:hover { background: rgba(255,255,255,0.10); }
-
     .minimize-button { right: 95px; }
     .maximize-button { right: 55px; }
-
     .close-button {
       position: absolute;
       top: 15px;
@@ -91,7 +85,6 @@
       align-items: center;
       justify-content: center;
       font-size: 18px;
-      line-height: 1;
     }
     .close-button:hover { background: rgba(255,0,0,.90); }
 
@@ -129,7 +122,6 @@
       flex-direction: column;
       gap: 12px;
     }
-
     .side-button {
       background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
       border: 1px solid rgba(102,102,102,.5);
@@ -147,14 +139,6 @@
       color: var(--green);
       transform: translateY(-2px);
     }
-    .side-button:active { transform: translateY(0); }
-
-    .button-group {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
     .mini-button {
       background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
       border: 1px solid rgba(102,102,102,.5);
@@ -173,7 +157,6 @@
       color: var(--green);
       transform: translateY(-1px);
     }
-
     .paypal-donate {
       background: linear-gradient(to bottom, #0070ba, #003087);
       border: 1px solid #003087;
@@ -197,7 +180,48 @@
       transform: translateY(-1px);
       box-shadow: 0 5px 15px rgba(0, 80, 199, 0.3);
     }
-    .paypal-icon { font-weight: bold; font-size: 16px; }
+
+    /* NEW PANELS (Server, Version, Test EXE) */
+    .info-panels {
+      position: absolute;
+      bottom: 200px;
+      left: 30px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 10px;
+      padding: 10px 15px;
+      backdrop-filter: blur(5px);
+      border-left: 3px solid var(--green);
+      font-size: 12px;
+      color: #ddd;
+      width: 260px;
+      z-index: 5;
+    }
+    .info-panels div {
+      margin: 6px 0;
+    }
+    .info-label {
+      color: var(--gold);
+      font-weight: bold;
+      display: inline-block;
+      width: 70px;
+    }
+    .server-online { color: #4caf50; }
+    .server-offline { color: #f44336; }
+    .test-exe-btn {
+      background: rgba(0,0,0,0.6);
+      border: 1px solid var(--green);
+      color: var(--green);
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      margin-left: 8px;
+      transition: 0.2s;
+    }
+    .test-exe-btn:hover {
+      background: var(--green);
+      color: black;
+    }
 
     /* Progress bottom */
     .progress-container {
@@ -211,7 +235,6 @@
       border-radius: 12px;
       -webkit-app-region: no-drag;
     }
-
     .progress-bar {
       height: 18px;
       background: rgba(0,0,0,.7);
@@ -219,20 +242,17 @@
       overflow: hidden;
       margin: 8px 0;
     }
-
     .progress-fill {
       height: 100%;
       width: 0%;
       background: linear-gradient(90deg, var(--green), #66ff66);
       transition: width 0.3s ease;
     }
-
     .status-text {
       text-align: center;
       font-size: 14px;
       color: var(--green);
     }
-
     #current-directory {
       font-size: 12px;
       color: #aaa;
@@ -244,7 +264,7 @@
       overflow-y: auto;
     }
 
-    /* Modal */
+    /* Modal (unchanged) */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -253,7 +273,6 @@
       display: none;
       -webkit-app-region: no-drag;
     }
-
     .settings-modal {
       position: fixed;
       top: 50%;
@@ -269,7 +288,6 @@
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
       -webkit-app-region: no-drag;
     }
-
     .settings-header {
       display: flex;
       justify-content: space-between;
@@ -278,14 +296,12 @@
       border-bottom: 1px solid rgba(76, 175, 80, 0.5);
       padding-bottom: 10px;
     }
-
     .settings-title {
       font-family: 'Orbitron', sans-serif;
       font-size: 20px;
       color: var(--green);
       text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
     }
-
     .settings-close {
       background: rgba(255,0,0,.7);
       border: none;
@@ -300,13 +316,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      line-height: 1;
     }
     .settings-close:hover {
       background: rgba(255,0,0,.9);
       transform: scale(1.1);
     }
-
     .setting-item {
       margin-bottom: 18px;
       padding: 10px;
@@ -314,7 +328,6 @@
       border-radius: 8px;
       border: 1px solid rgba(102,102,102,0.3);
     }
-
     .setting-label {
       display: block;
       margin-bottom: 8px;
@@ -322,7 +335,6 @@
       font-size: 14px;
       font-family: 'Orbitron', sans-serif;
     }
-
     .setting-select {
       width: 100%;
       padding: 10px;
@@ -339,7 +351,6 @@
       border-color: var(--green);
       box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
     }
-
     .setting-checkbox {
       margin-right: 10px;
       width: 18px;
@@ -360,7 +371,6 @@
       <div class="settings-title">SETTINGS</div>
       <button class="settings-close" id="settings-close">×</button>
     </div>
-
     <div class="setting-item">
       <label class="setting-label">Scan Mode</label>
       <select class="setting-select" id="scan-mode-select">
@@ -368,33 +378,19 @@
         <option value="full">Full Scan</option>
       </select>
     </div>
-
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox">
-        Auto-launch after scan
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox"> Auto-launch after scan</label>
     </div>
-
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="auto-update-checkbox">
-        Auto-update launcher
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="auto-update-checkbox"> Auto-update launcher</label>
     </div>
-
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox">
-        Minimize to system tray
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox"> Minimize to system tray</label>
     </div>
-
     <div class="setting-item">
       <label class="setting-label">Connection Timeout (seconds)</label>
       <input type="number" class="setting-select" id="timeout-input" min="10" max="120" value="30">
     </div>
-
     <button class="side-button" id="save-settings" style="margin-top: 20px; width: 100%;">SAVE SETTINGS</button>
   </div>
 
@@ -419,7 +415,7 @@
         <button class="mini-button" id="pause-button">PAUSE SCAN</button>
         <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
         <button class="mini-button" id="view-logs">VIEW LOGS</button>
-
+        <button class="mini-button" id="view-log-viewer" style="margin-top: 5px;">OPEN LOG VIEWER</button>
         <button class="paypal-donate" id="donate-button">
           <span class="paypal-icon">PayPal</span>
           <span>DONATE</span>
@@ -427,16 +423,17 @@
       </div>
     </div>
 
+    <!-- NEW INFO PANELS -->
+    <div class="info-panels">
+      <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
+      <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
+      <div><span class="info-label">SWGEmu.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
+    </div>
+
     <div class="progress-container">
-      <div class="progress-bar">
-        <div id="total-progress" class="progress-fill"></div>
-      </div>
+      <div class="progress-bar"><div id="total-progress" class="progress-fill"></div></div>
       <div id="total-status" class="status-text">0/0 files</div>
-
-      <div class="progress-bar">
-        <div id="file-progress" class="progress-fill"></div>
-      </div>
-
+      <div class="progress-bar"><div id="file-progress" class="progress-fill"></div></div>
       <div id="status" class="status-text">Ready</div>
       <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
     </div>
