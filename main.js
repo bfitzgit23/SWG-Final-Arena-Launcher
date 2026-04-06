@@ -22,7 +22,7 @@ let currentGameProcess = null;
 const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
-const SERVER_PORT = 44455; // SWG login port (adjust if needed)
+const SERVER_PORT = 44453; // SWG login port (adjust if needed)
 
 // ---------- Logger ----------
 const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
