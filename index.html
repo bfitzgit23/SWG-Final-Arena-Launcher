@@ -2,7 +2,8 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>SWG Epic Launcher</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>SWG Returns Launcher</title>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
@@ -13,22 +14,32 @@
       --green: #4CAF50;
     }
 
-    html, body {
-      width: 100%;
-      height: 100%;
+    * {
       margin: 0;
-      overflow: hidden;
-      background: transparent;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 0;
+      box-sizing: border-box;
       user-select: none;
     }
 
-    body { -webkit-app-region: no-drag; }
-    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
 
+    body {
+      -webkit-app-region: no-drag;
+    }
+
+    /* Background - covers entire window, draggable */
     .background-wrapper {
       position: fixed;
-      inset: 0;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       background: url('./img/background.png') no-repeat center center;
       background-size: cover;
       border-radius: var(--radius);
@@ -36,20 +47,28 @@
       -webkit-app-region: drag;
     }
 
+    /* Main content layer */
     .main-content {
-      position: fixed;
-      inset: 0;
+      position: relative;
       z-index: 2;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
 
-    button, select, input, .play-button {
-      -webkit-app-region: no-drag;
-    }
-
-    /* Window buttons */
-    .win-button {
+    /* Window buttons - always top right */
+    .window-controls {
       position: absolute;
       top: 15px;
+      right: 15px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .win-button, .close-button {
       width: 34px;
       height: 30px;
       border-radius: 8px;
@@ -57,143 +76,136 @@
       background: rgba(0,0,0,0.45);
       color: white;
       font-size: 16px;
-      z-index: 10;
       cursor: pointer;
       transition: 0.15s ease;
       display: flex;
       align-items: center;
       justify-content: center;
-      line-height: 1;
     }
     .win-button:hover { background: rgba(255,255,255,0.10); }
-    .minimize-button { right: 95px; }
-    .maximize-button { right: 55px; }
     .close-button {
-      position: absolute;
-      top: 15px;
-      right: 15px;
-      width: 34px;
-      height: 30px;
-      border-radius: 8px;
       background: rgba(255,0,0,.70);
       border: none;
-      color: white;
-      cursor: pointer;
-      z-index: 10;
-      transition: 0.15s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       font-size: 18px;
     }
     .close-button:hover { background: rgba(255,0,0,.90); }
 
-    /* PLAY button */
+    /* Main PLAY button - centered left, responsive */
     .play-button {
-      width: 120px;
-      height: 120px;
+      position: absolute;
+      left: 5%;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(120px, 15vw);
+      height: min(120px, 15vw);
       border-radius: 50%;
       background: linear-gradient(45deg, rgba(0,0,0,.8), rgba(51,51,51,.8));
       border: 4px solid rgba(102,102,102,.5);
-      position: absolute;
-      left: 50px;
-      top: 35%;
-      transform: translateY(-50%);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: clamp(16px, 5vw, 24px);
       color: #fff;
       cursor: pointer;
       transition: transform 0.2s, border-color 0.2s;
+      font-weight: bold;
     }
     .play-button:hover {
       transform: translateY(-50%) scale(1.05);
       border-color: var(--green);
     }
 
-    /* Right side buttons */
+    /* Right side buttons group */
     .side-buttons {
       position: absolute;
-      right: 30px;
-      top: 35%;
+      right: 3%;
+      top: 50%;
       transform: translateY(-50%);
       display: flex;
       flex-direction: column;
       gap: 12px;
+      max-width: 220px;
+      width: 25vw;
+      min-width: 160px;
     }
-    .side-button {
-      background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
-      border: 1px solid rgba(102,102,102,.5);
-      color: var(--gold);
-      padding: 12px 24px;
-      width: 200px;
-      cursor: pointer;
+
+    .side-button, .mini-button, .paypal-donate {
+      width: 100%;
+      padding: 12px 0;
+      text-align: center;
       border-radius: 8px;
       font-family: 'Orbitron', sans-serif;
       letter-spacing: 1px;
       transition: 0.2s ease;
+      cursor: pointer;
+      font-size: clamp(10px, 2vw, 14px);
+    }
+
+    .side-button {
+      background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
+      border: 1px solid rgba(102,102,102,.5);
+      color: var(--gold);
     }
     .side-button:hover {
       border-color: var(--green);
       color: var(--green);
       transform: translateY(-2px);
     }
+
     .mini-button {
       background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
       border: 1px solid rgba(102,102,102,.5);
       color: var(--gold);
-      padding: 8px 16px;
-      width: 200px;
-      cursor: pointer;
-      border-radius: 8px;
-      font-family: 'Orbitron', sans-serif;
-      letter-spacing: 1px;
-      transition: 0.2s ease;
-      font-size: 12px;
+      padding: 8px 0;
+      font-size: clamp(9px, 1.8vw, 12px);
     }
     .mini-button:hover {
       border-color: var(--green);
       color: var(--green);
       transform: translateY(-1px);
     }
+
     .paypal-donate {
       background: linear-gradient(to bottom, #0070ba, #003087);
       border: 1px solid #003087;
       color: white;
-      padding: 10px 16px;
-      width: 200px;
-      cursor: pointer;
-      border-radius: 8px;
-      font-family: 'Orbitron', sans-serif;
-      letter-spacing: 1px;
-      transition: 0.2s ease;
-      font-size: 13px;
+      padding: 10px 0;
+      font-weight: bold;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      font-weight: bold;
+      gap: 8px;
     }
     .paypal-donate:hover {
       background: linear-gradient(to bottom, #0090fa, #0050c7);
       transform: translateY(-1px);
-      box-shadow: 0 5px 15px rgba(0, 80, 199, 0.3);
     }
 
-    /* NEW PANELS (Server, Version, Test EXE) */
+    /* Current directory text */
+    #current-directory {
+      font-size: clamp(10px, 1.8vw, 12px);
+      color: #aaa;
+      word-break: break-all;
+      text-align: center;
+      margin: 8px 0;
+      max-height: 60px;
+      overflow-y: auto;
+    }
+
+    /* Info panels (server, version, test) - bottom left */
     .info-panels {
       position: absolute;
-      bottom: 200px;
-      left: 30px;
+      bottom: 20px;
+      left: 20px;
       background: rgba(0,0,0,0.7);
       border-radius: 10px;
       padding: 10px 15px;
       backdrop-filter: blur(5px);
       border-left: 3px solid var(--green);
-      font-size: 12px;
+      font-size: clamp(10px, 1.8vw, 12px);
       color: #ddd;
-      width: 260px;
+      max-width: 280px;
+      width: auto;
       z-index: 5;
     }
     .info-panels div {
@@ -211,10 +223,10 @@
       background: rgba(0,0,0,0.6);
       border: 1px solid var(--green);
       color: var(--green);
-      padding: 3px 8px;
+      padding: 2px 8px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: 10px;
       margin-left: 8px;
       transition: 0.2s;
     }
@@ -223,13 +235,14 @@
       color: black;
     }
 
-    /* Progress bottom */
+    /* Progress container - bottom center, responsive width */
     .progress-container {
       position: absolute;
-      bottom: 40px;
+      bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       width: 80%;
+      max-width: 900px;
       background: rgba(0,0,0,.75);
       padding: 15px;
       border-radius: 12px;
@@ -250,28 +263,21 @@
     }
     .status-text {
       text-align: center;
-      font-size: 14px;
+      font-size: clamp(11px, 2vw, 14px);
       color: var(--green);
     }
-    #current-directory {
-      font-size: 12px;
-      color: #aaa;
-      word-break: break-all;
-      text-align: center;
-      margin-top: 5px;
-      margin-bottom: 5px;
-      max-height: 60px;
-      overflow-y: auto;
+    #download-speed {
+      font-size: clamp(10px, 1.8vw, 12px);
+      color: #66ff66;
     }
 
-    /* Modal (unchanged) */
+    /* Modal remains mostly same, just ensure it's responsive */
     .modal-overlay {
       position: fixed;
       inset: 0;
       background: rgba(0,0,0,0.8);
       z-index: 1000;
       display: none;
-      -webkit-app-region: no-drag;
     }
     .settings-modal {
       position: fixed;
@@ -283,11 +289,12 @@
       border-radius: 12px;
       padding: 25px;
       z-index: 1001;
-      width: 420px;
+      width: 90%;
+      max-width: 420px;
       display: none;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-      -webkit-app-region: no-drag;
     }
+    /* ... rest of modal styles unchanged (keep your existing) ... */
     .settings-header {
       display: flex;
       justify-content: space-between;
@@ -300,7 +307,6 @@
       font-family: 'Orbitron', sans-serif;
       font-size: 20px;
       color: var(--green);
-      text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
     }
     .settings-close {
       background: rgba(255,0,0,.7);
@@ -310,23 +316,13 @@
       height: 28px;
       border-radius: 50%;
       font-size: 18px;
-      font-weight: bold;
-      transition: all 0.2s;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .settings-close:hover {
-      background: rgba(255,0,0,.9);
-      transform: scale(1.1);
     }
     .setting-item {
       margin-bottom: 18px;
       padding: 10px;
       background: rgba(0,0,0,0.3);
       border-radius: 8px;
-      border: 1px solid rgba(102,102,102,0.3);
     }
     .setting-label {
       display: block;
@@ -342,21 +338,53 @@
       background: rgba(0,0,0,0.7);
       border: 1px solid rgba(102,102,102,0.5);
       color: white;
-      font-size: 14px;
-      transition: all 0.2s;
-      cursor: pointer;
-    }
-    .setting-select:focus {
-      outline: none;
-      border-color: var(--green);
-      box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
     }
     .setting-checkbox {
       margin-right: 10px;
-      width: 18px;
-      height: 18px;
-      vertical-align: middle;
       accent-color: var(--green);
+    }
+
+    /* Responsive adjustments for very small screens */
+    @media (max-width: 800px) {
+      .side-buttons {
+        width: 35vw;
+        min-width: 140px;
+        right: 2%;
+      }
+      .play-button {
+        left: 3%;
+        width: 90px;
+        height: 90px;
+        font-size: 16px;
+      }
+      .info-panels {
+        bottom: 10px;
+        left: 10px;
+        padding: 6px 10px;
+        max-width: 240px;
+      }
+      .info-label {
+        width: 60px;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .side-buttons {
+        width: 40vw;
+        gap: 8px;
+      }
+      .play-button {
+        width: 70px;
+        height: 70px;
+        font-size: 14px;
+      }
+      .info-panels {
+        font-size: 9px;
+      }
+      .progress-container {
+        width: 90%;
+        padding: 10px;
+      }
     }
   </style>
 </head>
@@ -364,7 +392,7 @@
 <body>
   <div class="background-wrapper"></div>
 
-  <!-- Settings Modal -->
+  <!-- Settings Modal (same as before) -->
   <div class="modal-overlay" id="modal-overlay"></div>
   <div class="settings-modal" id="settings-modal">
     <div class="settings-header">
@@ -396,46 +424,45 @@
 
   <div class="main-content">
     <!-- Window controls -->
-    <button class="win-button minimize-button" id="minimize-button" title="Minimize">—</button>
-    <button class="win-button maximize-button" id="maximize-button" title="Maximize/Restore">▢</button>
-    <button class="close-button" id="close-button" title="Close">×</button>
-
-    <!-- Main UI -->
-    <div class="play-button" id="play-button">PLAY</div>
-
-    <div class="side-buttons">
-      <button class="side-button" id="quick-scan">QUICK SCAN</button>
-      <button class="side-button" id="full-scan">FULL SCAN (RECHECK ALL)</button>
-      <button class="side-button" id="install-location">INSTALL LOCATION</button>
-      <button class="side-button" id="settings-button">SETTINGS</button>
-
-      <div id="current-directory"></div>
-
-      <div class="button-group">
-        <button class="mini-button" id="pause-button">PAUSE SCAN</button>
-        <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
-        <button class="mini-button" id="view-logs">VIEW LOGS</button>
-        <button class="mini-button" id="view-log-viewer" style="margin-top: 5px;">OPEN LOG VIEWER</button>
-        <button class="paypal-donate" id="donate-button">
-          <span class="paypal-icon">PayPal</span>
-          <span>DONATE</span>
-        </button>
-      </div>
+    <div class="window-controls">
+      <button class="win-button" id="minimize-button" title="Minimize">—</button>
+      <button class="win-button" id="maximize-button" title="Maximize/Restore">▢</button>
+      <button class="close-button" id="close-button" title="Close">×</button>
     </div>
 
-    <!-- NEW INFO PANELS -->
+    <!-- Main PLAY button -->
+    <div class="play-button" id="play-button">PLAY</div>
+
+    <!-- Right side buttons -->
+    <div class="side-buttons">
+      <button class="side-button" id="quick-scan">QUICK SCAN</button>
+      <button class="side-button" id="full-scan">FULL SCAN</button>
+      <button class="side-button" id="install-location">INSTALL LOCATION</button>
+      <button class="side-button" id="settings-button">SETTINGS</button>
+      <div id="current-directory"></div>
+      <button class="mini-button" id="pause-button">PAUSE SCAN</button>
+      <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
+      <button class="mini-button" id="view-logs">VIEW LOGS</button>
+      <button class="mini-button" id="view-log-viewer">OPEN LOG VIEWER</button>
+      <button class="paypal-donate" id="donate-button">
+        <span>PayPal</span> <span>DONATE</span>
+      </button>
+    </div>
+
+    <!-- Info panels -->
     <div class="info-panels">
       <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
       <div><span class="info-label">SWGEmu.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
     </div>
 
+    <!-- Progress area -->
     <div class="progress-container">
       <div class="progress-bar"><div id="total-progress" class="progress-fill"></div></div>
       <div id="total-status" class="status-text">0/0 files</div>
       <div class="progress-bar"><div id="file-progress" class="progress-fill"></div></div>
       <div id="status" class="status-text">Ready</div>
-      <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
+      <div id="download-speed" class="status-text"></div>
     </div>
   </div>
 
