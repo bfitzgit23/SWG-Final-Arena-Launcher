@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (Defensive + Error Logging)
+// renderer.js - SWG Returns Launcher (Full Feature Set + MD5 Logging)
 
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
@@ -53,9 +53,6 @@ window.addEventListener('DOMContentLoaded', () => {
   const minimizeToTrayCheckbox = getElement('minimize-to-tray-checkbox');
   const timeoutInput = getElement('timeout-input');
   const saveSettingsButton = getElement('save-settings');
-
-  // Check critical elements exist
-  if (!playButton) console.error('CRITICAL: play-button missing!');
 
   // State
   let isScanning = false;
@@ -216,7 +213,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Patcher (multithread)
+  // Patcher (multithread) with MD5 mismatch logging
   async function startScan(mode) {
     if (isScanning) return updateStatus('Scan already in progress');
     isScanning = true;
@@ -243,7 +240,15 @@ window.addEventListener('DOMContentLoaded', () => {
           try {
             const localMd5 = await ipcRenderer.invoke('check-md5', localPath);
             valid = (localMd5 === file.md5);
-          } catch (_) { valid = false; }
+            if (!valid) {
+              // Log MD5 mismatch for debugging
+              console.warn(`[MD5 Mismatch] ${file.name}: local=${localMd5}, expected=${file.md5}`);
+              updateStatus(`MD5 mismatch: ${file.name}, re-downloading...`);
+            }
+          } catch (err) {
+            console.error(`Error checking MD5 for ${file.name}:`, err);
+            valid = false;
+          }
         }
         if (!valid) filesToDownload.push(file);
         updateProgress(i + 1, files.length, 'total');
@@ -256,6 +261,9 @@ window.addEventListener('DOMContentLoaded', () => {
       }
 
       updateStatus(`Downloading ${filesToDownload.length} files with parallel streams...`);
+      // Update Discord presence
+      ipcRenderer.invoke('update-discord-status', 'downloading', 'Downloading game files').catch(()=>{});
+
       await ipcRenderer.invoke('patcher-start', filesToDownload, installDir);
 
       const fileCompleteHandler = (event, { fileId, success, error }) => {
@@ -280,6 +288,7 @@ window.addEventListener('DOMContentLoaded', () => {
       });
     } catch (error) {
       updateStatus(`Scan error: ${error.message}`);
+      console.error('Scan error:', error);
       isScanning = false;
     }
   }
@@ -363,12 +372,13 @@ window.addEventListener('DOMContentLoaded', () => {
       if (versionInfo.needsUpdate) updateStatus('New game version available! Run a scan to update.');
     } catch (err) {
       gameVersionSpan.textContent = 'Check failed';
+      console.error('Game version check error:', err);
     }
   }
   if (checkUpdatesBtn) checkUpdatesBtn.addEventListener('click', checkGameVersion);
   setInterval(checkGameVersion, 600000);
 
-  // Auto-detect
+  // Auto-detect install directory
   async function autoDetectInstall() {
     const detected = await ipcRenderer.invoke('detect-install-dir');
     if (detected && !installDir) {
