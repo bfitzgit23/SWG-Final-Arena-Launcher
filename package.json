@@ -1,13 +1,13 @@
 {
-  "name": "epic-launcher",
+  "name": "SWG-Final-Arena-launcher",
   "version": "1.1.0",
-  "description": "Epic Launcher",
+  "description": "SWG-Final-Arena Launcher",
   "main": "main.js",
-  "author": "Epic_Dev",
+  "author": "SWG-Final-Arena_Dev",
   "license": "CC0-1.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bfitzgit23/Epic-Launcher"
+    "url": "https://github.com/bfitzgit23/SWG-Final-Arena-Launcher-Launcher"
   },
   "homepage": "https://swgreturns.github.io",
   "keywords": [
@@ -51,8 +51,8 @@
     "uuid": "^9.0.0"
   },
   "build": {
-    "appId": "com.Epic.launcher",
-    "productName": "Epic Launcher",
+    "appId": "com.SWG-Final-Arena-Launcher.launcher",
+    "productName": "SWG-Final-Arena-Launcher Launcher",
     "directories": {
       "buildResources": "build",
       "output": "dist"
