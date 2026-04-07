@@ -25,7 +25,7 @@ let mainWindow;
 let rpc;
 let currentGameProcess = null;
 
-const BASE_URL = 'http://15.204.254.253/tre/genesis';
+const BASE_URL = 'http://15.204.254.253/tre/genesis/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
 const SERVER_PORT = 44453;
