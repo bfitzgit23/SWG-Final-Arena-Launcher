@@ -415,6 +415,11 @@
       <input type="number" class="setting-select" id="timeout-input" min="10" max="120" value="30">
     </div>
     <div class="setting-item">
+      <label class="setting-label">Max In‑Game FPS</label>
+      <input type="range" id="max-fps-slider" min="30" max="144" step="1" value="60">
+      <span id="max-fps-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">60 FPS</span>
+    </div>
+    <div class="setting-item">
       <label class="setting-label">UI Zoom (%)</label>
       <input type="range" id="zoom-slider" min="50" max="150" step="5" value="100">
       <span id="zoom-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">100%</span>
@@ -464,7 +469,6 @@
       <div class="progress-bar"><div id="file-progress" class="progress-fill"></div></div>
       <div id="status" class="status-text">Ready</div>
       <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
-      <div id="fps-counter" class="status-text" style="font-size: 11px; color: #aaa; margin-top: 5px;">FPS: --</div>
     </div>
   </div>
 
