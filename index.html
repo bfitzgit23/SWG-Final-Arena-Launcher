@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>SWG Returns Launcher</title>
+  <title>SWG The Final Arena Launcher</title>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
@@ -228,7 +228,7 @@
       overflow-y: auto;
     }
 
-    /* NEW INFO PANELS (bottom left, above progress) */
+    /* Info panels (bottom left) */
     .info-panels {
       position: absolute;
       bottom: 180px;
@@ -271,7 +271,7 @@
       color: black;
     }
 
-    /* Modal (unchanged) */
+    /* Modal */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -362,6 +362,25 @@
       vertical-align: middle;
       accent-color: var(--green);
     }
+    input[type="range"] {
+      width: 100%;
+      cursor: pointer;
+      background: rgba(0,0,0,0.7);
+      height: 4px;
+      border-radius: 5px;
+      -webkit-appearance: none;
+    }
+    input[type="range"]:focus {
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--green);
+      cursor: pointer;
+    }
   </style>
 </head>
 
@@ -395,6 +414,11 @@
       <label class="setting-label">Connection Timeout (seconds)</label>
       <input type="number" class="setting-select" id="timeout-input" min="10" max="120" value="30">
     </div>
+    <div class="setting-item">
+      <label class="setting-label">UI Zoom (%)</label>
+      <input type="range" id="zoom-slider" min="50" max="150" step="5" value="100">
+      <span id="zoom-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">100%</span>
+    </div>
     <button class="side-button" id="save-settings" style="margin-top: 20px; width: 100%;">SAVE SETTINGS</button>
   </div>
 
@@ -427,7 +451,7 @@
       </div>
     </div>
 
-    <!-- NEW INFO PANELS -->
+    <!-- Info Panels -->
     <div class="info-panels">
       <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
@@ -440,6 +464,7 @@
       <div class="progress-bar"><div id="file-progress" class="progress-fill"></div></div>
       <div id="status" class="status-text">Ready</div>
       <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
+      <div id="fps-counter" class="status-text" style="font-size: 11px; color: #aaa; margin-top: 5px;">FPS: --</div>
     </div>
   </div>
 
