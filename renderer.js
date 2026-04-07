@@ -1,10 +1,8 @@
-// renderer.js - SWG Returns Launcher (Full Feature Set + MD5 Logging)
-
+// renderer.js - SWG Returns Launcher (Full Feature Set)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
-// Helper to safely get element and log if missing
 function getElement(id) {
   const el = document.getElementById(id);
   if (!el) console.error(`[Renderer] Element not found: #${id}`);
@@ -14,7 +12,7 @@ function getElement(id) {
 window.addEventListener('DOMContentLoaded', () => {
   console.log('[Renderer] DOM ready, initializing...');
 
-  // DOM Elements
+  // ---- DOM elements ----
   const closeButton = getElement('close-button');
   const minimizeButton = getElement('minimize-button');
   const maximizeButton = getElement('maximize-button');
@@ -33,8 +31,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const totalStatusElement = getElement('total-status');
   const statusElement = getElement('status');
   const downloadSpeedElement = getElement('download-speed');
+  const fpsElement = getElement('fps-counter');
 
-  // New elements
   const serverStatusSpan = getElement('server-status');
   const refreshServerBtn = getElement('refresh-server');
   const gameVersionSpan = getElement('game-version');
@@ -43,7 +41,6 @@ window.addEventListener('DOMContentLoaded', () => {
   const testExeButton = getElement('test-exe-button');
   const viewLogViewerButton = getElement('view-log-viewer');
 
-  // Modal elements
   const modalOverlay = getElement('modal-overlay');
   const settingsModal = getElement('settings-modal');
   const settingsCloseButton = getElement('settings-close');
@@ -53,16 +50,18 @@ window.addEventListener('DOMContentLoaded', () => {
   const minimizeToTrayCheckbox = getElement('minimize-to-tray-checkbox');
   const timeoutInput = getElement('timeout-input');
   const saveSettingsButton = getElement('save-settings');
+  const zoomSlider = getElement('zoom-slider');
+  const zoomValue = getElement('zoom-value');
 
-  // State
+  // ---- State ----
   let isScanning = false;
   let isPaused = false;
   let installDir = null;
   let lastDownloadUpdate = Date.now();
   let lastDownloadBytes = 0;
-  let currentTotalFiles = 0;
   let completedFiles = 0;
 
+  // ---- Helper functions ----
   function updateStatus(text) {
     if (statusElement) statusElement.textContent = text;
     console.log(`[Status] ${text}`);
@@ -96,15 +95,33 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Window controls
+  // ---- FPS Counter ----
+  let fps = 0;
+  let frameCount = 0;
+  let lastFpsUpdate = performance.now();
+  function updateFPS() {
+    frameCount++;
+    const now = performance.now();
+    const delta = now - lastFpsUpdate;
+    if (delta >= 1000) {
+      fps = Math.round((frameCount * 1000) / delta);
+      if (fpsElement) fpsElement.textContent = `FPS: ${fps}`;
+      frameCount = 0;
+      lastFpsUpdate = now;
+    }
+    requestAnimationFrame(updateFPS);
+  }
+  requestAnimationFrame(updateFPS);
+
+  // ---- Window controls ----
   async function refreshMaximizeIcon() {
     try {
       const isMax = await ipcRenderer.invoke('window:isMaximized');
       if (maximizeButton) maximizeButton.textContent = isMax ? '❐' : '▢';
     } catch (_) {}
   }
-  if (closeButton) closeButton.addEventListener('click', async () => await ipcRenderer.invoke('window:close'));
-  if (minimizeButton) minimizeButton.addEventListener('click', async () => await ipcRenderer.invoke('window:minimize'));
+  if (closeButton) closeButton.addEventListener('click', () => ipcRenderer.invoke('window:close'));
+  if (minimizeButton) minimizeButton.addEventListener('click', () => ipcRenderer.invoke('window:minimize'));
   if (maximizeButton) maximizeButton.addEventListener('click', async () => {
     await ipcRenderer.invoke('window:maximizeToggle');
     await refreshMaximizeIcon();
@@ -113,9 +130,20 @@ window.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'F11') { e.preventDefault(); await ipcRenderer.invoke('window:toggleFullscreen'); }
   });
 
-  // Settings modal
-  function openSettingsModal() { if (modalOverlay && settingsModal) { modalOverlay.style.display = 'block'; settingsModal.style.display = 'block'; loadSettings(); } }
-  function closeSettingsModal() { if (modalOverlay && settingsModal) { modalOverlay.style.display = 'none'; settingsModal.style.display = 'none'; } }
+  // ---- Settings modal ----
+  function openSettingsModal() {
+    if (modalOverlay && settingsModal) {
+      modalOverlay.style.display = 'block';
+      settingsModal.style.display = 'block';
+      loadSettings();
+    }
+  }
+  function closeSettingsModal() {
+    if (modalOverlay && settingsModal) {
+      modalOverlay.style.display = 'none';
+      settingsModal.style.display = 'none';
+    }
+  }
   if (settingsButton) settingsButton.addEventListener('click', openSettingsModal);
   if (settingsCloseButton) settingsCloseButton.addEventListener('click', closeSettingsModal);
   if (modalOverlay) modalOverlay.addEventListener('click', closeSettingsModal);
@@ -131,6 +159,11 @@ window.addEventListener('DOMContentLoaded', () => {
         if (autoUpdateCheckbox) autoUpdateCheckbox.checked = settings.autoUpdate || false;
         if (minimizeToTrayCheckbox) minimizeToTrayCheckbox.checked = settings.minimizeToTray || false;
         if (timeoutInput) timeoutInput.value = settings.timeout || 30;
+        if (zoomSlider && zoomValue) {
+          const savedZoom = settings.zoom || 100;
+          zoomSlider.value = savedZoom;
+          zoomValue.textContent = `${savedZoom}%`;
+        }
       }
     } catch (error) { console.error('Failed to load settings:', error); }
   }
@@ -142,7 +175,8 @@ window.addEventListener('DOMContentLoaded', () => {
         autoLaunch: autoLaunchCheckbox ? autoLaunchCheckbox.checked : false,
         autoUpdate: autoUpdateCheckbox ? autoUpdateCheckbox.checked : false,
         minimizeToTray: minimizeToTrayCheckbox ? minimizeToTrayCheckbox.checked : false,
-        timeout: timeoutInput ? parseInt(timeoutInput.value, 10) || 30 : 30
+        timeout: timeoutInput ? parseInt(timeoutInput.value, 10) || 30 : 30,
+        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100
       };
       await ipcRenderer.invoke('save-settings', settings);
       updateStatus('Settings saved successfully');
@@ -151,7 +185,16 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   if (saveSettingsButton) saveSettingsButton.addEventListener('click', saveSettings);
 
-  // Install directory
+  // ---- Zoom slider live update ----
+  if (zoomSlider && zoomValue) {
+    zoomSlider.addEventListener('input', async (e) => {
+      const val = parseInt(e.target.value, 10);
+      zoomValue.textContent = `${val}%`;
+      await ipcRenderer.invoke('set-zoom', val);
+    });
+  }
+
+  // ---- Install directory ----
   async function showInstallLocationDialog() {
     try {
       const selectedDir = await ipcRenderer.invoke('select-directory');
@@ -166,7 +209,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   if (installLocationButton) installLocationButton.addEventListener('click', showInstallLocationDialog);
 
-  // EXE test
+  // ---- EXE test ----
   async function checkExeStatus() {
     if (!installDir) { if (exeStatusSpan) exeStatusSpan.textContent = 'No directory'; return; }
     const exePath = path.join(installDir, 'SWGEmu.exe');
@@ -187,7 +230,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Play button
+  // ---- Play button ----
   if (playButton) {
     playButton.addEventListener('click', async () => {
       if (!installDir) {
@@ -213,7 +256,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Patcher (multithread) with MD5 mismatch logging
+  // ---- Patcher (multithread) ----
   async function startScan(mode) {
     if (isScanning) return updateStatus('Scan already in progress');
     isScanning = true;
@@ -229,7 +272,7 @@ window.addEventListener('DOMContentLoaded', () => {
       await ipcRenderer.invoke('save-scan-mode', mode);
       updateStatus('Loading file list from server...');
       const files = await ipcRenderer.invoke('load-required-files');
-      currentTotalFiles = files.length;
+      const totalFiles = files.length;
 
       let filesToDownload = [];
       for (let i = 0; i < files.length; i++) {
@@ -240,14 +283,11 @@ window.addEventListener('DOMContentLoaded', () => {
           try {
             const localMd5 = await ipcRenderer.invoke('check-md5', localPath);
             valid = (localMd5 === file.md5);
-            if (!valid) {
-              console.warn(`[MD5 Mismatch] ${file.name}: local=${localMd5}, expected=${file.md5}`);
-              updateStatus(`MD5 mismatch: ${file.name}, re-downloading...`);
-            }
+            if (!valid) console.warn(`[MD5 Mismatch] ${file.name}: local=${localMd5}, expected=${file.md5}`);
           } catch (err) { valid = false; }
         }
         if (!valid) filesToDownload.push(file);
-        updateProgress(i + 1, files.length, 'total');
+        updateProgress(i + 1, totalFiles, 'total');
       }
 
       if (filesToDownload.length === 0) {
@@ -257,9 +297,6 @@ window.addEventListener('DOMContentLoaded', () => {
       }
 
       updateStatus(`Downloading ${filesToDownload.length} files with parallel streams...`);
-      // Update Discord presence
-      ipcRenderer.invoke('update-discord-status', 'downloading', 'Downloading game files').catch(()=>{});
-
       await ipcRenderer.invoke('patcher-start', filesToDownload, installDir);
 
       const fileCompleteHandler = (event, { fileId, success, error }) => {
@@ -270,15 +307,14 @@ window.addEventListener('DOMContentLoaded', () => {
           updateStatus('Patcher finished!');
           isScanning = false;
           ipcRenderer.removeListener('file-complete', fileCompleteHandler);
-          const autoLaunch = autoLaunchCheckbox ? autoLaunchCheckbox.checked : false;
-          if (autoLaunch && playButton) {
+          if (autoLaunchCheckbox && autoLaunchCheckbox.checked && playButton) {
             updateStatus('Auto-launching game...');
             setTimeout(() => playButton.click(), 1000);
           }
         }
       };
       ipcRenderer.on('file-complete', fileCompleteHandler);
-      ipcRenderer.on('file-progress', (event, { fileId, downloaded, total }) => {
+      ipcRenderer.on('file-progress', (event, { downloaded, total }) => {
         updateProgress(downloaded, total, 'file');
         updateDownloadSpeed(downloaded);
       });
@@ -308,7 +344,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Other buttons
+  // ---- Other buttons ----
   if (clearCacheButton) clearCacheButton.addEventListener('click', async () => {
     try {
       await ipcRenderer.invoke('clear-cache');
@@ -329,7 +365,7 @@ window.addEventListener('DOMContentLoaded', () => {
     updateStatus('Opening PayPal donation page...');
   });
 
-  // Server status
+  // ---- Server status ----
   async function refreshServerStatus() {
     if (!serverStatusSpan) return;
     try {
@@ -349,7 +385,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (refreshServerBtn) refreshServerBtn.addEventListener('click', refreshServerStatus);
   setInterval(refreshServerStatus, 30000);
 
-  // Game version
+  // ---- Game version ----
   async function checkGameVersion() {
     if (!gameVersionSpan) return;
     try {
@@ -370,7 +406,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (checkUpdatesBtn) checkUpdatesBtn.addEventListener('click', checkGameVersion);
   setInterval(checkGameVersion, 600000);
 
-  // Auto-detect install directory
+  // ---- Auto-detect install directory ----
   async function autoDetectInstall() {
     const detected = await ipcRenderer.invoke('detect-install-dir');
     if (detected && !installDir) {
@@ -382,14 +418,14 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Launcher auto-updater events
+  // ---- Launcher auto-updater events ----
   ipcRenderer.on('update-available', () => updateStatus('New launcher version available. Downloading...'));
   ipcRenderer.on('update-downloaded', () => {
     const restart = confirm('Update downloaded. Restart now to apply?');
     if (restart) ipcRenderer.invoke('restart-and-update');
   });
 
-  // Initialization
+  // ---- Initialization ----
   (async function init() {
     installDir = await ipcRenderer.invoke('get-install-dir');
     if (installDir) {
