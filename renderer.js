@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (Full Feature Set)
+// renderer.js - SWG Returns Launcher (Full Feature Set + In-Game FPS Limit)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -31,12 +31,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const totalStatusElement = getElement('total-status');
   const statusElement = getElement('status');
   const downloadSpeedElement = getElement('download-speed');
-  const fpsElement = getElement('fps-counter');
 
   const serverStatusSpan = getElement('server-status');
   const refreshServerBtn = getElement('refresh-server');
   const gameVersionSpan = getElement('game-version');
-  const checkUpdatesBtn = getElement('check-updates');
+  const checkUpdatesBtn = getElement('check-upserver-statusdates');
   const exeStatusSpan = getElement('exe-status');
   const testExeButton = getElement('test-exe-button');
   const viewLogViewerButton = getElement('view-log-viewer');
@@ -52,6 +51,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const saveSettingsButton = getElement('save-settings');
   const zoomSlider = getElement('zoom-slider');
   const zoomValue = getElement('zoom-value');
+  const maxFpsSlider = getElement('max-fps-slider');
+  const maxFpsValue = getElement('max-fps-value');
 
   // ---- State ----
   let isScanning = false;
@@ -94,24 +95,6 @@ window.addEventListener('DOMContentLoaded', () => {
       lastDownloadBytes = bytesSoFar;
     }
   }
-
-  // ---- FPS Counter ----
-  let fps = 0;
-  let frameCount = 0;
-  let lastFpsUpdate = performance.now();
-  function updateFPS() {
-    frameCount++;
-    const now = performance.now();
-    const delta = now - lastFpsUpdate;
-    if (delta >= 1000) {
-      fps = Math.round((frameCount * 1000) / delta);
-      if (fpsElement) fpsElement.textContent = `FPS: ${fps}`;
-      frameCount = 0;
-      lastFpsUpdate = now;
-    }
-    requestAnimationFrame(updateFPS);
-  }
-  requestAnimationFrame(updateFPS);
 
   // ---- Window controls ----
   async function refreshMaximizeIcon() {
@@ -164,6 +147,11 @@ window.addEventListener('DOMContentLoaded', () => {
           zoomSlider.value = savedZoom;
           zoomValue.textContent = `${savedZoom}%`;
         }
+        if (maxFpsSlider && maxFpsValue) {
+          const savedFps = settings.maxFps || 60;
+          maxFpsSlider.value = savedFps;
+          maxFpsValue.textContent = `${savedFps} FPS`;
+        }
       }
     } catch (error) { console.error('Failed to load settings:', error); }
   }
@@ -176,7 +164,8 @@ window.addEventListener('DOMContentLoaded', () => {
         autoUpdate: autoUpdateCheckbox ? autoUpdateCheckbox.checked : false,
         minimizeToTray: minimizeToTrayCheckbox ? minimizeToTrayCheckbox.checked : false,
         timeout: timeoutInput ? parseInt(timeoutInput.value, 10) || 30 : 30,
-        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100
+        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100,
+        maxFps: maxFpsSlider ? parseInt(maxFpsSlider.value, 10) : 60
       };
       await ipcRenderer.invoke('save-settings', settings);
       updateStatus('Settings saved successfully');
@@ -191,6 +180,14 @@ window.addEventListener('DOMContentLoaded', () => {
       const val = parseInt(e.target.value, 10);
       zoomValue.textContent = `${val}%`;
       await ipcRenderer.invoke('set-zoom', val);
+    });
+  }
+
+  // ---- In-game FPS slider live update (just UI, saved on save) ----
+  if (maxFpsSlider && maxFpsValue) {
+    maxFpsSlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      maxFpsValue.textContent = `${val} FPS`;
     });
   }
 
@@ -230,7 +227,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---- Play button ----
+  // ---- Play button (pass max FPS to launcher) ----
   if (playButton) {
     playButton.addEventListener('click', async () => {
       if (!installDir) {
@@ -246,8 +243,11 @@ window.addEventListener('DOMContentLoaded', () => {
         exePath = picked;
       }
       try {
-        updateStatus(`Launching ${path.basename(exePath)}...`);
-        const result = await ipcRenderer.invoke('launch-game', exePath);
+        // Get current max FPS setting
+        const settings = await ipcRenderer.invoke('get-settings');
+        const maxFps = settings.maxFps || 60;
+        updateStatus(`Launching ${path.basename(exePath)} with max FPS ${maxFps}...`);
+        const result = await ipcRenderer.invoke('launch-game', { exePath, maxFps });
         updateStatus(`${path.basename(exePath)} launched successfully (PID: ${result.pid})`);
       } catch (error) {
         updateStatus(`Launch failed: ${error.message}`);
