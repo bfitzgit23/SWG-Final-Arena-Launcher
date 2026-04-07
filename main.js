@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (Full Feature Set)
+// main.js - SWG Returns Launcher (Optional Discord RPC)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -6,8 +6,16 @@ const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
-const DiscordRPC = require('discord-rpc');
 const axios = require('axios');
+
+// Optional Discord RPC (graceful fallback)
+let DiscordRPC;
+try {
+  DiscordRPC = require('discord-rpc');
+} catch (e) {
+  console.warn('Discord RPC not available, rich presence disabled:', e.message);
+  DiscordRPC = null;
+}
 
 // ---------- DPI / scaling fix ----------
 app.commandLine.appendSwitch('high-dpi-support', '1');
@@ -18,10 +26,10 @@ let rpc;
 let currentGameProcess = null;
 
 // Server configuration
-const BASE_URL = 'http://15.204.254.253/tre/genesis/';
+const BASE_URL = 'http://15.204.254.253/tre/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
-const SERVER_PORT = 44453; // Updated to your SWG login port
+const SERVER_PORT = 44453;
 
 // ---------- Logger ----------
 const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
@@ -34,9 +42,13 @@ function log(message, level = 'INFO') {
   } catch (_) {}
 }
 
-// ---------- Discord Rich Presence ----------
+// ---------- Discord Rich Presence (optional) ----------
 function initDiscordRPC() {
-  const clientId = '1490822251304714323'; // Your Discord App ID
+  if (!DiscordRPC) {
+    log('Discord RPC skipped (module not loaded)');
+    return;
+  }
+  const clientId = '1490822251304714323';
   DiscordRPC.register(clientId);
   rpc = new DiscordRPC.Client({ transport: 'ipc' });
   rpc.on('ready', () => {
@@ -104,10 +116,9 @@ function createWindow() {
     webPreferences: { nodeIntegration: true, contextIsolation: false, enableRemoteModule: false },
     show: false
   });
-  mainWindow.setMinimumSize(1024, 600); // Adjusted for better responsiveness
+  mainWindow.setMinimumSize(1024, 600);
   mainWindow.loadFile('index.html');
 
-  // Zoom lock
   mainWindow.webContents.on('did-finish-load', async () => {
     try {
       await mainWindow.webContents.setZoomFactor(1);
@@ -115,7 +126,6 @@ function createWindow() {
     } catch (_) {}
   });
 
-  // Hotkeys
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') {
       event.preventDefault();
@@ -196,7 +206,7 @@ ipcMain.handle('save-game-version', (event, version) => {
 });
 
 // ---------- Patcher with multithread + pause/resume ----------
-let activeDownloads = new Map(); // fileId -> { req, fileStream, bytesDownloaded }
+let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
 let patcherPaused = false;
@@ -219,7 +229,6 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
 
     const req = http.get(url, requestOptions, (response) => {
       if (response.statusCode === 200 && existingSize > 0) {
-        // Server doesn't support range, restart
         fs.writeFileSync(destination, '');
         existingSize = 0;
       }
@@ -298,7 +307,6 @@ ipcMain.handle('patcher-start', async (event, files, installDir) => {
     const file = files[i];
     const destination = path.join(installDir, file.name);
     const fileId = `file_${i}`;
-    // Build URL: use file.url if exists, else construct from base
     const url = file.url && file.url.startsWith('http') ? file.url : BASE_URL + file.name;
     downloadQueue.push({
       file: { ...file, url },
@@ -327,30 +335,66 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- Reliable EXE Launch + Fallback ----------
-async function launchExe(exePath) {
+// ---------- Reliable EXE Launch + Crash Mitigation ----------
+async function launchExe(exePath, options = {}) {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) reject(new Error('File not found'));
     const exeDir = path.dirname(exePath);
     const exeName = path.basename(exePath);
 
-    // Method 1: spawn
-    const gameProcess = spawn(exePath, [], {
-      detached: true, stdio: 'ignore', cwd: exeDir, windowsHide: true
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    const resArg = `-r ${width}x${height}`;
+
+    const args = [
+      '-c',
+      resArg,
+      '-s',
+      '-nopageflip'
+    ];
+
+    const env = {
+      ...process.env,
+      __COMPAT_LAYER: 'RunAsInvoker Win7RTM',
+      DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1: '1',
+      DISABLE_LAYER_NV_OPTIMUS_1: '1'
+    };
+
+    log(`Launching ${exePath} with args: ${args.join(' ')}`);
+
+    const gameProcess = spawn(exePath, args, {
+      detached: true,
+      stdio: 'ignore',
+      cwd: exeDir,
+      windowsHide: true,
+      env: env
     });
+
     gameProcess.on('error', (err) => {
       log(`Spawn failed: ${err.message}`, 'ERROR');
-      // Fallback to execFile
-      execFile(exePath, [], { cwd: exeDir, windowsHide: true }, (execErr, stdout, stderr) => {
-        if (execErr) reject(new Error(`Both spawn and execFile failed: ${execErr.message}`));
-        else resolve({ success: true, pid: gameProcess.pid, method: 'execFile' });
+      execFile(exePath, [], {
+        cwd: exeDir,
+        windowsHide: true,
+        env: env
+      }, (execErr, stdout, stderr) => {
+        if (execErr) {
+          reject(new Error(`Both spawn and execFile failed: ${execErr.message}`));
+        } else {
+          resolve({ success: true, pid: gameProcess.pid, method: 'execFile (fallback)' });
+        }
       });
     });
-    gameProcess.on('exit', (code) => log(`Game process exited with code ${code}`));
+
+    gameProcess.on('exit', (code) => {
+      log(`Game process exited with code ${code}`);
+      if (code !== 0 && code !== null) {
+        log(`Game crashed with exit code ${code}. Common fix: run launcher as Administrator or set SWGEmu.exe to Windows 7 compatibility mode.`, 'WARN');
+      }
+    });
+
     gameProcess.unref();
     if (gameProcess.pid) {
       currentGameProcess = gameProcess;
-      resolve({ success: true, pid: gameProcess.pid, method: 'spawn' });
+      resolve({ success: true, pid: gameProcess.pid, method: 'spawn (with crash mitigation)' });
     } else {
       reject(new Error('No PID'));
     }
@@ -362,7 +406,6 @@ ipcMain.handle('test-exe', async (event, exePath) => {
     if (!fs.existsSync(exePath)) return { valid: false, error: 'File does not exist' };
     const ext = path.extname(exePath).toLowerCase();
     if (ext !== '.exe') return { valid: false, error: 'Not an .exe file' };
-    // Optional: try to get version info
     const { exec } = require('child_process');
     const version = await new Promise((resolve) => {
       exec(`wmic datafile where name="${exePath.replace(/\\/g, '\\\\')}" get Version /value`, (err, stdout) => {
@@ -397,7 +440,6 @@ ipcMain.handle('server-status', async () => {
     const ping = Date.now() - start;
     return { online: true, ping, method: 'http' };
   } catch {
-    // TCP ping fallback using the specified port
     const net = require('net');
     return new Promise((resolve) => {
       const socket = new net.Socket();
@@ -445,7 +487,7 @@ ipcMain.handle('detect-install-dir', () => {
   return detectInstallDir();
 });
 
-// ---------- Existing Handlers (file list, MD5, download, settings, etc.) ----------
+// ---------- File Management Handlers ----------
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
@@ -485,7 +527,6 @@ ipcMain.handle('check-md5', async (event, filePath) => {
   });
 });
 
-// Fallback simple download (used by old scan, but patcher uses its own)
 ipcMain.handle('download-file', async (event, { url, destination, expectedMd5, size }) => {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
@@ -527,6 +568,7 @@ ipcMain.handle('select-file', async () => {
   return null;
 });
 
+// ---------- Settings Management ----------
 const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 ipcMain.handle('save-settings', (event, settings) => {
   try {
@@ -581,6 +623,7 @@ ipcMain.handle('open-logs', async () => {
   return { success: true };
 });
 
+// ---------- Global Error Handlers ----------
 process.on('uncaughtException', (error) => {
   try { fs.appendFileSync(logFile, `${new Date().toISOString()} - Uncaught Exception: ${error.stack}\n`); } catch(_) {}
 });
