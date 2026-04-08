@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (Full Feature Set + In-Game FPS Limit)
+// main.js - SWG Returns Launcher (Reliable Launch)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { spawn, execFile } = require('child_process');
+const { execFile } = require('child_process');
 const axios = require('axios');
 
 // Optional Discord RPC
@@ -17,29 +17,23 @@ try {
   DiscordRPC = null;
 }
 
-// DPI / scaling
 app.commandLine.appendSwitch('high-dpi-support', '1');
 app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
 let mainWindow;
 let rpc;
-let currentGameProcess = null;
 
-// ---------- BASE URL updated to carbonite subfolder ----------
 const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
 const SERVER_PORT = 44453;
 
-// Logger
 const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
 function log(message, level = 'INFO') {
   const timestamp = new Date().toISOString();
   const logLine = `[${timestamp}] [${level}] ${message}\n`;
   console.log(logLine.trim());
-  try {
-    fs.appendFileSync(logFile, logLine, { flag: 'a' });
-  } catch (_) {}
+  try { fs.appendFileSync(logFile, logLine, { flag: 'a' }); } catch (_) {}
 }
 
 // Discord RPC (optional)
@@ -81,7 +75,7 @@ function updateDiscordStatus(status, details = '') {
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on('error', (err) => log(`Auto-updater error (ignored): ${err.message}`, 'WARN'));
+  autoUpdater.on('error', (err) => log(`Auto-updater error: ${err.message}`, 'WARN'));
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch(err => log(`Auto-updater check failed: ${err.message}`, 'WARN'));
   }, 5000);
@@ -106,7 +100,6 @@ function detectInstallDir() {
   return null;
 }
 
-// Window management
 function toggleFullscreen(win) {
   if (!win || win.isDestroyed()) return;
   win.setFullScreen(!win.isFullScreen());
@@ -116,25 +109,15 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280, height: 720,
     useContentSize: true,
-    frame: false,
-    transparent: true,
-    resizable: true,
-    minimizable: true,
-    maximizable: true,
-    fullscreenable: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-      enableRemoteModule: false
-    },
+    frame: false, transparent: true,
+    resizable: true, minimizable: true, maximizable: true, fullscreenable: true,
+    backgroundColor: '#00000000', hasShadow: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
     show: false
   });
   mainWindow.setMinimumSize(1024, 600);
   mainWindow.loadFile('index.html');
 
-  // Load saved zoom level
   mainWindow.webContents.on('did-finish-load', async () => {
     try {
       const settingsPath = path.join(app.getPath('userData'), 'settings.json');
@@ -146,7 +129,6 @@ function createWindow() {
     } catch (_) {}
   });
 
-  // Hotkeys
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') {
       event.preventDefault();
@@ -176,6 +158,7 @@ app.whenReady().then(() => {
   if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
   log('Launcher started');
 });
+
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
@@ -224,7 +207,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Patcher (multithread with resume)
+// Patcher (unchanged, but included for completeness)
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
@@ -324,70 +307,53 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// Reliable EXE launch with maxFPS argument
-async function launchExe(exePath, maxFps = 60) {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(exePath)) reject(new Error('File not found'));
-    const exeDir = path.dirname(exePath);
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-    const args = [
-      '-c',
-      `-r ${width}x${height}`,
-      '-s',
-      '-nopageflip',
-      `-maxFPS ${maxFps}`
-    ];
-    const env = {
-      ...process.env,
-      __COMPAT_LAYER: 'RunAsInvoker Win7RTM',
-      DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1: '1',
-      DISABLE_LAYER_NV_OPTIMUS_1: '1'
-    };
-    log(`Launching ${exePath} with args: ${args.join(' ')}`);
-    const gameProcess = spawn(exePath, args, {
-      detached: true, stdio: 'ignore', cwd: exeDir, windowsHide: true, env
-    });
-    gameProcess.on('error', (err) => {
-      log(`Spawn failed: ${err.message}`, 'ERROR');
-      execFile(exePath, [], { cwd: exeDir, windowsHide: true, env }, (execErr) => {
-        if (execErr) reject(new Error(`Both spawn and execFile failed: ${execErr.message}`));
-        else resolve({ success: true, pid: gameProcess.pid, method: 'execFile' });
-      });
-    });
-    gameProcess.on('exit', (code) => log(`Game process exited with code ${code}`));
-    gameProcess.unref();
-    if (gameProcess.pid) {
-      currentGameProcess = gameProcess;
-      resolve({ success: true, pid: gameProcess.pid, method: 'spawn' });
-    } else reject(new Error('No PID'));
-  });
-}
+// ---------- RELIABLE GAME LAUNCH (SIMPLIFIED) ----------
 ipcMain.handle('test-exe', async (event, exePath) => {
   try {
     if (!fs.existsSync(exePath)) return { valid: false, error: 'File does not exist' };
     const ext = path.extname(exePath).toLowerCase();
     if (ext !== '.exe') return { valid: false, error: 'Not an .exe file' };
-    const { exec } = require('child_process');
-    const version = await new Promise((resolve) => {
-      exec(`wmic datafile where name="${exePath.replace(/\\/g, '\\\\')}" get Version /value`, (err, stdout) => {
-        if (err) resolve(null);
-        const match = stdout.match(/Version=([^\r\n]+)/);
-        resolve(match ? match[1] : null);
-      });
-    });
-    return { valid: true, version };
-  } catch (err) { return { valid: false, error: err.message }; }
-});
-ipcMain.handle('launch-game', async (event, { exePath, maxFps }) => {
-  try {
-    const result = await launchExe(exePath, maxFps);
-    updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-    log(`Game launched via ${result.method}, PID ${result.pid} with max FPS ${maxFps}`);
-    return result;
+    return { valid: true, version: 'unknown' };
   } catch (err) {
-    log(`Launch failed: ${err.message}`, 'ERROR');
-    throw err;
+    return { valid: false, error: err.message };
   }
+});
+
+ipcMain.handle('launch-game', async (event, { exePath, maxFps }) => {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(exePath)) {
+      reject(new Error(`Executable not found: ${exePath}`));
+      return;
+    }
+
+    const exeDir = path.dirname(exePath);
+    log(`Attempting to launch: ${exePath}`);
+
+    // Use execFile (no extra arguments) for maximum compatibility
+    // This mimics how other working launchers start SWGEmu.exe
+    const gameProcess = execFile(exePath, [], {
+      cwd: exeDir,
+      windowsHide: false,   // Let the game window show normally
+      detached: true
+    }, (error, stdout, stderr) => {
+      if (error) {
+        log(`Game process error: ${error.message}`, 'ERROR');
+        if (stderr) log(`stderr: ${stderr}`, 'ERROR');
+        reject(error);
+      } else {
+        log(`Game process exited cleanly`);
+      }
+    });
+
+    gameProcess.unref();
+    if (gameProcess.pid) {
+      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+      log(`Game launched with PID: ${gameProcess.pid}`);
+      resolve({ success: true, pid: gameProcess.pid, method: 'execFile' });
+    } else {
+      reject(new Error('Failed to obtain process ID'));
+    }
+  });
 });
 
 // Server status
@@ -431,10 +397,9 @@ ipcMain.handle('open-log-viewer', () => {
     </script></body></html>`);
 });
 
-// Auto-detect install dir IPC
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download, directory selection
+// File list, MD5, download, directory selection (unchanged from previous working version)
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
