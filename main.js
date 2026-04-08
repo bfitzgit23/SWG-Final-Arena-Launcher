@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (Full Feature Set + options.cfg support)
+// main.js - SWG Returns Launcher (Genesis FPS patching + login config)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const axios = require('axios');
 
 // Optional Discord RPC
@@ -207,10 +207,10 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// ---- options.cfg read/write ----
+// ---- options.cfg read/write (for camera zoom only) ----
 ipcMain.handle('get-game-config', async (event, installDir) => {
   const optionsPath = path.join(installDir, 'options.cfg');
-  const defaults = { maxFramesPerSecond: 60, maxCameraZoom: 10 };
+  const defaults = { maxCameraZoom: 10 };
   if (!fs.existsSync(optionsPath)) return defaults;
   try {
     const content = fs.readFileSync(optionsPath, 'utf8');
@@ -226,7 +226,6 @@ ipcMain.handle('get-game-config', async (event, installDir) => {
       }
     }
     return {
-      maxFramesPerSecond: config.maxFramesPerSecond ?? defaults.maxFramesPerSecond,
       maxCameraZoom: config.maxCameraZoom ?? defaults.maxCameraZoom
     };
   } catch (err) {
@@ -256,6 +255,91 @@ ipcMain.handle('save-game-config', async (event, installDir, gameConfig) => {
     log(`Error writing options.cfg: ${err.message}`, 'ERROR');
     return { success: false, error: err.message };
   }
+});
+
+// ---- Genesis FPS patching (write float at offset 0x1156) ----
+ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
+  return new Promise((resolve) => {
+    if (!fs.existsSync(exePath)) {
+      resolve({ success: false, error: 'Executable not found' });
+      return;
+    }
+    try {
+      const fd = fs.openSync(exePath, 'r+');
+      const buf = Buffer.alloc(7);
+      const bytesRead = fs.readSync(fd, buf, 0, 7, 0x1153);
+      if (bytesRead === 7 && buf.readUInt8(0) === 0xc7 && buf.readUInt8(1) === 0x45 && buf.readUInt8(2) === 0x94) {
+        // Patch the float at offset 0x1156
+        const floatBuf = Buffer.alloc(4);
+        floatBuf.writeFloatLE(fps);
+        fs.writeSync(fd, floatBuf, 0, 4, 0x1156);
+        fs.closeSync(fd);
+        log(`Patched SWGEmu.exe FPS to ${fps} at offset 0x1156`);
+        resolve({ success: true });
+      } else {
+        fs.closeSync(fd);
+        resolve({ success: false, error: 'Executable signature mismatch – cannot patch FPS' });
+      }
+    } catch (err) {
+      log(`FPS patching error: ${err.message}`, 'ERROR');
+      resolve({ success: false, error: err.message });
+    }
+  });
+});
+
+// ---- Get server info for login config ----
+ipcMain.handle('get-server-info', async () => {
+  return { ip: SERVER_IP, port: SERVER_PORT };
+});
+
+// ---- Game launch (Genesis style: spawn with env vars and arguments) ----
+ipcMain.handle('test-exe', async (event, exePath) => {
+  try {
+    if (!fs.existsSync(exePath)) return { valid: false, error: 'File does not exist' };
+    const ext = path.extname(exePath).toLowerCase();
+    if (ext !== '.exe') return { valid: false, error: 'Not an .exe file' };
+    return { valid: true, version: 'unknown' };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+});
+
+ipcMain.handle('launch-game', async (event, { exePath, ram }) => {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(exePath)) {
+      reject(new Error(`Executable not found: ${exePath}`));
+      return;
+    }
+    const exeDir = path.dirname(exePath);
+    const args = [
+      "--",
+      "-s", "ClientGame", `loginServerAddress0=${SERVER_IP}`, `loginServerPort0=${SERVER_PORT}`,
+      "-s", "Station", "gameFeatures=34929",
+      "-s", "SwgClient", "allowMultipleInstances=true"
+    ];
+    const env = Object.create(process.env);
+    env.SWGCLIENT_MEMORY_SIZE_MB = ram || 750;
+    log(`Launching ${exePath} with args: ${args.join(' ')}, memory: ${env.SWGCLIENT_MEMORY_SIZE_MB} MB`);
+    const gameProcess = spawn(exePath, args, {
+      cwd: exeDir,
+      env: env,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false
+    });
+    gameProcess.on('error', (err) => {
+      log(`Spawn error: ${err.message}`, 'ERROR');
+      reject(err);
+    });
+    gameProcess.unref();
+    if (gameProcess.pid) {
+      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+      log(`Game launched with PID: ${gameProcess.pid}`);
+      resolve({ success: true, pid: gameProcess.pid });
+    } else {
+      reject(new Error('Failed to obtain process ID'));
+    }
+  });
 });
 
 // ---- Patcher (multithread with resume) ----
@@ -358,51 +442,7 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---- Game launch (simplified, no arguments) ----
-ipcMain.handle('test-exe', async (event, exePath) => {
-  try {
-    if (!fs.existsSync(exePath)) return { valid: false, error: 'File does not exist' };
-    const ext = path.extname(exePath).toLowerCase();
-    if (ext !== '.exe') return { valid: false, error: 'Not an .exe file' };
-    return { valid: true, version: 'unknown' };
-  } catch (err) {
-    return { valid: false, error: err.message };
-  }
-});
-
-ipcMain.handle('launch-game', async (event, { exePath }) => {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(exePath)) {
-      reject(new Error(`Executable not found: ${exePath}`));
-      return;
-    }
-    const exeDir = path.dirname(exePath);
-    log(`Launching ${exePath} (settings from options.cfg)`);
-    const gameProcess = execFile(exePath, [], {
-      cwd: exeDir,
-      windowsHide: false,
-      detached: true
-    }, (error, stdout, stderr) => {
-      if (error) {
-        log(`Game process error: ${error.message}`, 'ERROR');
-        if (stderr) log(`stderr: ${stderr}`, 'ERROR');
-        reject(error);
-      } else {
-        log('Game exited cleanly');
-      }
-    });
-    gameProcess.unref();
-    if (gameProcess.pid) {
-      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-      log(`Game launched with PID: ${gameProcess.pid}`);
-      resolve({ success: true, pid: gameProcess.pid });
-    } else {
-      reject(new Error('Failed to obtain process ID'));
-    }
-  });
-});
-
-// Server status
+// ---- Server status ----
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
   try {
