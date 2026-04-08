@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (Full Feature Set + options.cfg support)
+// renderer.js - SWG Returns Launcher (Genesis FPS patching + login config)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -140,8 +140,12 @@ window.addEventListener('DOMContentLoaded', () => {
       const gameConfig = await ipcRenderer.invoke('get-game-config', installDir);
       if (gameConfig) {
         if (maxFpsSlider && maxFpsValue) {
-          maxFpsSlider.value = gameConfig.maxFramesPerSecond || 60;
-          maxFpsValue.textContent = `${gameConfig.maxFramesPerSecond || 60} FPS`;
+          // FPS value is stored in settings.json, not in options.cfg for this method
+          // But we still load it from launcher settings
+          const settings = await ipcRenderer.invoke('get-settings');
+          const savedFps = settings.maxFps || 60;
+          maxFpsSlider.value = savedFps;
+          maxFpsValue.textContent = `${savedFps} FPS`;
         }
         if (cameraZoomSlider && cameraZoomValue) {
           cameraZoomSlider.value = gameConfig.maxCameraZoom || 10;
@@ -166,6 +170,11 @@ window.addEventListener('DOMContentLoaded', () => {
           zoomSlider.value = savedZoom;
           zoomValue.textContent = `${savedZoom}%`;
         }
+        if (maxFpsSlider && maxFpsValue) {
+          const savedFps = settings.maxFps || 60;
+          maxFpsSlider.value = savedFps;
+          maxFpsValue.textContent = `${savedFps} FPS`;
+        }
       }
       await loadGameConfig();
     } catch (error) { console.error('Failed to load settings:', error); }
@@ -179,13 +188,13 @@ window.addEventListener('DOMContentLoaded', () => {
         autoUpdate: autoUpdateCheckbox ? autoUpdateCheckbox.checked : false,
         minimizeToTray: minimizeToTrayCheckbox ? minimizeToTrayCheckbox.checked : false,
         timeout: timeoutInput ? parseInt(timeoutInput.value, 10) || 30 : 30,
-        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100
+        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100,
+        maxFps: maxFpsSlider ? parseInt(maxFpsSlider.value, 10) : 60
       };
       await ipcRenderer.invoke('save-settings', settings);
       
       if (installDir) {
         const gameConfig = {
-          maxFramesPerSecond: maxFpsSlider ? parseInt(maxFpsSlider.value, 10) : 60,
           maxCameraZoom: cameraZoomSlider ? parseInt(cameraZoomSlider.value, 10) : 10
         };
         await ipcRenderer.invoke('save-game-config', installDir, gameConfig);
@@ -253,7 +262,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---- Play button (launches game with no extra args) ----
+  // ---- Play button (Genesis FPS patching + login config) ----
   if (playButton) {
     playButton.addEventListener('click', async () => {
       if (!installDir) {
@@ -267,10 +276,35 @@ window.addEventListener('DOMContentLoaded', () => {
         const picked = await ipcRenderer.invoke('select-file');
         if (!picked) return;
         exePath = picked;
+        installDir = path.dirname(exePath);
+        await ipcRenderer.invoke('save-install-dir', installDir);
+        if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
       }
+      
       try {
-        updateStatus(`Launching ${path.basename(exePath)}...`);
-        const result = await ipcRenderer.invoke('launch-game', { exePath });
+        // Step 1: Patch the executable with the desired FPS (Genesis method)
+        const settings = await ipcRenderer.invoke('get-settings');
+        const desiredFps = settings.maxFps || 60;
+        updateStatus(`Setting max FPS to ${desiredFps}...`);
+        const patchResult = await ipcRenderer.invoke('patch-game-fps', exePath, desiredFps);
+        if (!patchResult.success) {
+          updateStatus(`Warning: Could not patch FPS: ${patchResult.error}`);
+        } else {
+          updateStatus(`FPS patched to ${desiredFps}`);
+        }
+        
+        // Step 2: Write swgemu_login.cfg with server address and camera zoom
+        const serverInfo = await ipcRenderer.invoke('get-server-info');
+        const gameConfig = await ipcRenderer.invoke('get-game-config', installDir);
+        const zoom = gameConfig.maxCameraZoom || 10;
+        const loginCfg = `[ClientGame]\r\nloginServerAddress0=${serverInfo.ip}\r\nloginServerPort0=${serverInfo.port}\r\nfreeChaseCameraMaximumZoom=${zoom}\r\n0fd345d9 = true\r\n`;
+        const loginCfgPath = path.join(installDir, 'swgemu_login.cfg');
+        fs.writeFileSync(loginCfgPath, loginCfg, 'utf8');
+        updateStatus('Login configuration written');
+        
+        // Step 3: Launch the game with optional memory/arguments (Genesis style)
+        const ram = settings.ram || 750; // optional, default 750 MB
+        const result = await ipcRenderer.invoke('launch-game', { exePath, ram });
         updateStatus(`${path.basename(exePath)} launched successfully (PID: ${result.pid})`);
       } catch (error) {
         updateStatus(`Launch failed: ${error.message}`);
