@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
   <title>SWG Returns Launcher</title>
 
   <style>
@@ -13,18 +14,24 @@
       --green: #4CAF50;
     }
 
-    html, body {
-      width: 100%;
-      height: 100%;
+    * {
       margin: 0;
-      overflow: hidden;
-      background: transparent;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 0;
+      box-sizing: border-box;
       user-select: none;
     }
 
-    body { -webkit-app-region: no-drag; }
-    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      -webkit-app-region: no-drag;
+    }
 
     /* Animated hyperspace background */
     #hyperspace-canvas {
@@ -38,29 +45,39 @@
       pointer-events: none;
     }
 
+    /* Semi-transparent overlay (draggable area) */
     .background-wrapper {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.4); /* semi-transparent overlay for readability */
+      background: rgba(0,0,0,0.4);
       border-radius: var(--radius);
       z-index: 1;
       -webkit-app-region: drag;
     }
 
+    /* Main content - no drag, full size, flex column */
     .main-content {
-      position: fixed;
-      inset: 0;
+      position: relative;
       z-index: 2;
-    }
-
-    button, select, input, .play-button {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
       -webkit-app-region: no-drag;
     }
 
-    /* Window buttons */
-    .win-button {
+    /* Window buttons - absolute top right */
+    .window-controls {
       position: absolute;
       top: 15px;
+      right: 15px;
+      display: flex;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .win-button, .close-button {
       width: 34px;
       height: 30px;
       border-radius: 8px;
@@ -68,173 +85,119 @@
       background: rgba(0,0,0,0.45);
       color: white;
       font-size: 16px;
-      z-index: 10;
       cursor: pointer;
       transition: 0.15s ease;
       display: flex;
       align-items: center;
       justify-content: center;
-      line-height: 1;
+      -webkit-app-region: no-drag;
     }
     .win-button:hover { background: rgba(255,255,255,0.10); }
-    .minimize-button { right: 95px; }
-    .maximize-button { right: 55px; }
     .close-button {
-      position: absolute;
-      top: 15px;
-      right: 15px;
-      width: 34px;
-      height: 30px;
-      border-radius: 8px;
       background: rgba(255,0,0,.70);
       border: none;
-      color: white;
-      cursor: pointer;
-      z-index: 10;
-      transition: 0.15s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       font-size: 18px;
     }
     .close-button:hover { background: rgba(255,0,0,.90); }
 
-    /* PLAY button */
+    /* PLAY button - left side, centered vertically */
     .play-button {
-      width: 120px;
-      height: 120px;
+      position: absolute;
+      left: 5%;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(120px, 12vw);
+      height: min(120px, 12vw);
       border-radius: 50%;
       background: linear-gradient(45deg, rgba(0,0,0,.8), rgba(51,51,51,.8));
       border: 4px solid rgba(102,102,102,.5);
-      position: absolute;
-      left: 50px;
-      top: 35%;
-      transform: translateY(-50%);
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 24px;
+      font-size: clamp(16px, 4vw, 24px);
       color: #fff;
       cursor: pointer;
       transition: transform 0.2s, border-color 0.2s;
+      font-weight: bold;
+      -webkit-app-region: no-drag;
     }
     .play-button:hover {
       transform: translateY(-50%) scale(1.05);
       border-color: var(--green);
     }
 
-    /* Right side buttons */
+    /* Right side buttons group */
     .side-buttons {
       position: absolute;
-      right: 30px;
-      top: 35%;
+      right: 3%;
+      top: 50%;
       transform: translateY(-50%);
       display: flex;
       flex-direction: column;
       gap: 12px;
+      max-width: 220px;
+      width: 25vw;
+      min-width: 160px;
     }
-    .side-button {
-      background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
-      border: 1px solid rgba(102,102,102,.5);
-      color: var(--gold);
-      padding: 12px 24px;
-      width: 200px;
-      cursor: pointer;
+
+    .side-button, .mini-button, .paypal-donate {
+      width: 100%;
+      padding: 10px 0;
+      text-align: center;
       border-radius: 8px;
       font-family: 'Orbitron', sans-serif;
       letter-spacing: 1px;
       transition: 0.2s ease;
+      cursor: pointer;
+      font-size: clamp(10px, 1.8vw, 14px);
+      -webkit-app-region: no-drag;
+    }
+
+    .side-button {
+      background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
+      border: 1px solid rgba(102,102,102,.5);
+      color: var(--gold);
     }
     .side-button:hover {
       border-color: var(--green);
       color: var(--green);
       transform: translateY(-2px);
     }
-    .button-group {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
+
     .mini-button {
       background: linear-gradient(to bottom, rgba(0,0,0,.85), rgba(0,0,0,.95));
       border: 1px solid rgba(102,102,102,.5);
       color: var(--gold);
-      padding: 8px 16px;
-      width: 200px;
-      cursor: pointer;
-      border-radius: 8px;
-      font-family: 'Orbitron', sans-serif;
-      letter-spacing: 1px;
-      transition: 0.2s ease;
-      font-size: 12px;
+      padding: 8px 0;
+      font-size: clamp(9px, 1.6vw, 12px);
     }
     .mini-button:hover {
       border-color: var(--green);
       color: var(--green);
       transform: translateY(-1px);
     }
+
     .paypal-donate {
       background: linear-gradient(to bottom, #0070ba, #003087);
       border: 1px solid #003087;
       color: white;
-      padding: 10px 16px;
-      width: 200px;
-      cursor: pointer;
-      border-radius: 8px;
-      font-family: 'Orbitron', sans-serif;
-      letter-spacing: 1px;
-      transition: 0.2s ease;
-      font-size: 13px;
+      font-weight: bold;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      font-weight: bold;
+      gap: 8px;
     }
     .paypal-donate:hover {
       background: linear-gradient(to bottom, #0090fa, #0050c7);
       transform: translateY(-1px);
-      box-shadow: 0 5px 15px rgba(0, 80, 199, 0.3);
     }
-    .paypal-icon { font-weight: bold; font-size: 16px; }
 
-    /* Progress bottom */
-    .progress-container {
-      position: absolute;
-      bottom: 40px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 80%;
-      background: rgba(0,0,0,.75);
-      padding: 15px;
-      border-radius: 12px;
-      -webkit-app-region: no-drag;
-    }
-    .progress-bar {
-      height: 18px;
-      background: rgba(0,0,0,.7);
-      border-radius: 10px;
-      overflow: hidden;
-      margin: 8px 0;
-    }
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, var(--green), #66ff66);
-      transition: width 0.3s ease;
-    }
-    .status-text {
-      text-align: center;
-      font-size: 14px;
-      color: var(--green);
-    }
     #current-directory {
-      font-size: 12px;
+      font-size: clamp(10px, 1.8vw, 12px);
       color: #aaa;
       word-break: break-all;
       text-align: center;
-      margin-top: 5px;
-      margin-bottom: 5px;
+      margin: 8px 0;
       max-height: 60px;
       overflow-y: auto;
     }
@@ -242,21 +205,22 @@
     /* Info panels (bottom left) */
     .info-panels {
       position: absolute;
-      bottom: 180px;
-      left: 30px;
+      bottom: 20px;
+      left: 20px;
       background: rgba(0,0,0,0.7);
       border-radius: 10px;
-      padding: 10px 15px;
+      padding: 8px 12px;
       backdrop-filter: blur(5px);
       border-left: 3px solid var(--green);
-      font-size: 12px;
+      font-size: clamp(10px, 1.8vw, 12px);
       color: #ddd;
-      width: 260px;
+      max-width: 280px;
+      width: auto;
       z-index: 5;
       -webkit-app-region: no-drag;
     }
     .info-panels div {
-      margin: 6px 0;
+      margin: 5px 0;
     }
     .info-label {
       color: var(--gold);
@@ -270,19 +234,56 @@
       background: rgba(0,0,0,0.6);
       border: 1px solid var(--green);
       color: var(--green);
-      padding: 2px 8px;
+      padding: 2px 6px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 10px;
-      margin-left: 8px;
+      font-size: 9px;
+      margin-left: 6px;
       transition: 0.2s;
+      -webkit-app-region: no-drag;
     }
     .test-exe-btn:hover {
       background: var(--green);
       color: black;
     }
 
-    /* Modal */
+    /* Progress container - bottom center, responsive width */
+    .progress-container {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80%;
+      max-width: 900px;
+      background: rgba(0,0,0,.75);
+      padding: 12px;
+      border-radius: 12px;
+      -webkit-app-region: no-drag;
+    }
+    .progress-bar {
+      height: 18px;
+      background: rgba(0,0,0,.7);
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 6px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--green), #66ff66);
+      transition: width 0.3s ease;
+    }
+    .status-text {
+      text-align: center;
+      font-size: clamp(11px, 2vw, 14px);
+      color: var(--green);
+    }
+    #download-speed {
+      font-size: clamp(10px, 1.8vw, 12px);
+      color: #66ff66;
+    }
+
+    /* Modal (unchanged, responsive) */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -299,9 +300,10 @@
       background: rgba(20, 20, 20, 0.95);
       border: 2px solid var(--green);
       border-radius: 12px;
-      padding: 25px;
+      padding: 20px;
       z-index: 1001;
-      width: 420px;
+      width: 90%;
+      max-width: 420px;
       display: none;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
       -webkit-app-region: no-drag;
@@ -310,15 +312,14 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 15px;
       border-bottom: 1px solid rgba(76, 175, 80, 0.5);
-      padding-bottom: 10px;
+      padding-bottom: 8px;
     }
     .settings-title {
       font-family: 'Orbitron', sans-serif;
       font-size: 20px;
       color: var(--green);
-      text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
     }
     .settings-close {
       background: rgba(255,0,0,.7);
@@ -328,58 +329,39 @@
       height: 28px;
       border-radius: 50%;
       font-size: 18px;
-      font-weight: bold;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .settings-close:hover {
-      background: rgba(255,0,0,.9);
-      transform: scale(1.1);
     }
     .setting-item {
-      margin-bottom: 18px;
-      padding: 10px;
+      margin-bottom: 15px;
+      padding: 8px;
       background: rgba(0,0,0,0.3);
       border-radius: 8px;
-      border: 1px solid rgba(102,102,102,0.3);
     }
     .setting-label {
       display: block;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: var(--gold);
-      font-size: 14px;
+      font-size: 13px;
       font-family: 'Orbitron', sans-serif;
     }
     .setting-select {
       width: 100%;
-      padding: 10px;
+      padding: 8px;
       border-radius: 6px;
       background: rgba(0,0,0,0.7);
       border: 1px solid rgba(102,102,102,0.5);
       color: white;
-      font-size: 14px;
-    }
-    .setting-select:focus {
-      outline: none;
-      border-color: var(--green);
-      box-shadow: 0 0 10px rgba(76, 175, 80, 0.3);
     }
     .setting-item label {
       display: block;
       color: #ddd;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
-      margin: 5px 0;
+      margin: 4px 0;
     }
     .setting-checkbox {
-      margin-right: 10px;
-      width: 18px;
-      height: 18px;
-      vertical-align: middle;
+      margin-right: 8px;
       accent-color: var(--green);
-      cursor: pointer;
     }
     input[type="range"] {
       width: 100%;
@@ -389,16 +371,26 @@
       border-radius: 5px;
       -webkit-appearance: none;
     }
-    input[type="range"]:focus {
-      outline: none;
-    }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       border-radius: 50%;
       background: var(--green);
       cursor: pointer;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 800px) {
+      .side-buttons { width: 32vw; min-width: 140px; right: 2%; }
+      .play-button { left: 3%; width: 90px; height: 90px; font-size: 16px; }
+      .info-panels { bottom: 10px; left: 10px; padding: 6px 10px; max-width: 240px; }
+      .info-label { width: 60px; }
+    }
+    @media (max-width: 600px) {
+      .side-buttons { width: 40vw; gap: 8px; }
+      .play-button { width: 70px; height: 70px; font-size: 14px; }
+      .progress-container { width: 90%; padding: 10px; }
     }
   </style>
 </head>
@@ -422,22 +414,13 @@
       </select>
     </div>
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox">
-        <span style="color: #ddd;">Auto-launch after scan</span>
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="auto-launch-checkbox"> Auto-launch after scan</label>
     </div>
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="auto-update-checkbox">
-        <span style="color: #ddd;">Auto-update launcher</span>
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="auto-update-checkbox"> Auto-update launcher</label>
     </div>
     <div class="setting-item">
-      <label>
-        <input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox">
-        <span style="color: #ddd;">Minimize to system tray</span>
-      </label>
+      <label><input type="checkbox" class="setting-checkbox" id="minimize-to-tray-checkbox"> Minimize to system tray</label>
     </div>
     <div class="setting-item">
       <label class="setting-label">Connection Timeout (seconds)</label>
@@ -446,28 +429,28 @@
     <div class="setting-item">
       <label class="setting-label">Max In‑Game FPS</label>
       <input type="range" id="max-fps-slider" min="30" max="144" step="1" value="60">
-      <span id="max-fps-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">60 FPS</span>
+      <span id="max-fps-value" style="color: var(--gold); display: inline-block; margin-top: 4px;">60 FPS</span>
     </div>
     <div class="setting-item">
       <label class="setting-label">Max Camera Zoom</label>
       <input type="range" id="camera-zoom-slider" min="1" max="20" step="1" value="10">
-      <span id="camera-zoom-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">10</span>
+      <span id="camera-zoom-value" style="color: var(--gold); display: inline-block; margin-top: 4px;">10</span>
     </div>
     <div class="setting-item">
       <label class="setting-label">UI Zoom (%)</label>
       <input type="range" id="zoom-slider" min="50" max="150" step="5" value="100">
-      <span id="zoom-value" style="color: var(--gold); display: inline-block; margin-top: 5px;">100%</span>
+      <span id="zoom-value" style="color: var(--gold); display: inline-block; margin-top: 4px;">100%</span>
     </div>
-    <button class="side-button" id="save-settings" style="margin-top: 20px; width: 100%;">SAVE SETTINGS</button>
+    <button class="side-button" id="save-settings" style="margin-top: 15px; width: 100%;">SAVE SETTINGS</button>
   </div>
 
   <div class="main-content">
-    <!-- Window controls -->
-    <button class="win-button minimize-button" id="minimize-button" title="Minimize">—</button>
-    <button class="win-button maximize-button" id="maximize-button" title="Maximize/Restore">▢</button>
-    <button class="close-button" id="close-button" title="Close">×</button>
+    <div class="window-controls">
+      <button class="win-button" id="minimize-button" title="Minimize">—</button>
+      <button class="win-button" id="maximize-button" title="Maximize/Restore">▢</button>
+      <button class="close-button" id="close-button" title="Close">×</button>
+    </div>
 
-    <!-- Main UI -->
     <div class="play-button" id="play-button">PLAY</div>
 
     <div class="side-buttons">
@@ -476,26 +459,21 @@
       <button class="side-button" id="repair-button">REPAIR FILES</button>
       <button class="side-button" id="install-location">INSTALL LOCATION</button>
       <button class="side-button" id="settings-button">SETTINGS</button>
-
       <div id="current-directory"></div>
-
-      <div class="button-group">
-        <button class="mini-button" id="pause-button">PAUSE SCAN</button>
-        <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
-        <button class="mini-button" id="view-logs">VIEW LOGS</button>
-        <button class="mini-button" id="view-log-viewer">OPEN LOG VIEWER</button>
-        <button class="paypal-donate" id="donate-button">
-          <span class="paypal-icon">PayPal</span>
-          <span>DONATE</span>
-        </button>
-      </div>
+      <button class="mini-button" id="pause-button">PAUSE SCAN</button>
+      <button class="mini-button" id="clear-cache">CLEAR CACHE</button>
+      <button class="mini-button" id="view-logs">VIEW LOGS</button>
+      <button class="mini-button" id="view-log-viewer">OPEN LOG VIEWER</button>
+      <button class="paypal-donate" id="donate-button">
+        <span>PayPal</span> <span>DONATE</span>
+      </button>
     </div>
 
-    <!-- Info Panels -->
+    <!-- Info Panels (label updated to SwgClient_r.exe) -->
     <div class="info-panels">
       <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
-      <div><span class="info-label">SWGEmu.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
+      <div><span class="info-label">SwgClient_r.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
     </div>
 
     <div class="progress-container">
@@ -503,7 +481,7 @@
       <div id="total-status" class="status-text">0/0 files</div>
       <div class="progress-bar"><div id="file-progress" class="progress-fill"></div></div>
       <div id="status" class="status-text">Ready</div>
-      <div id="download-speed" class="status-text" style="font-size: 12px; color: #66ff66;"></div>
+      <div id="download-speed" class="status-text"></div>
     </div>
   </div>
 
@@ -545,7 +523,6 @@
         ctx.fillStyle = 'white';
         for (let i = 0; i < stars.length; i++) {
           const s = stars[i];
-          // Move star toward center (warp effect)
           s.z -= s.speed * speed;
           if (s.z <= 0) {
             s.z = width;
