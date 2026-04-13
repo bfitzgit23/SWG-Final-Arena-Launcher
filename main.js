@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (Genesis FPS patching + login config)
+// main.js - SWG TFA Launcher (Genesis FPS patching + login config)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -601,7 +601,7 @@ ipcMain.handle('open-logs', async () => {
   const logPath = path.join(app.getPath('userData'), 'logs');
   if (!fs.existsSync(logPath)) fs.mkdirSync(logPath, { recursive: true });
   const logFileFull = path.join(logPath, 'launcher.log');
-  if (!fs.existsSync(logFileFull)) fs.writeFileSync(logFileFull, `SWG Returns Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
+  if (!fs.existsSync(logFileFull)) fs.writeFileSync(logFileFull, `SWG TFA Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
   shell.openPath(logFileFull);
   return { success: true };
 });
