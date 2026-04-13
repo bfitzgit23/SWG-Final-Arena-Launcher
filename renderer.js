@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (Genesis FPS patching + login config)
+// renderer.js - SWG Returns Launcher (NGE + Repair + Hyperspace)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +19,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const playButton = getElement('play-button');
   const quickScanButton = getElement('quick-scan');
   const fullScanButton = getElement('full-scan');
+  const repairButton = getElement('repair-button');
   const installLocationButton = getElement('install-location');
   const settingsButton = getElement('settings-button');
   const pauseButton = getElement('pause-button');
@@ -139,18 +140,16 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       const gameConfig = await ipcRenderer.invoke('get-game-config', installDir);
       if (gameConfig) {
-        if (maxFpsSlider && maxFpsValue) {
-          // FPS value is stored in settings.json, not in options.cfg for this method
-          // But we still load it from launcher settings
-          const settings = await ipcRenderer.invoke('get-settings');
-          const savedFps = settings.maxFps || 60;
-          maxFpsSlider.value = savedFps;
-          maxFpsValue.textContent = `${savedFps} FPS`;
-        }
         if (cameraZoomSlider && cameraZoomValue) {
           cameraZoomSlider.value = gameConfig.maxCameraZoom || 10;
           cameraZoomValue.textContent = cameraZoomSlider.value;
         }
+      }
+      const settings = await ipcRenderer.invoke('get-settings');
+      if (maxFpsSlider && maxFpsValue) {
+        const savedFps = settings.maxFps || 60;
+        maxFpsSlider.value = savedFps;
+        maxFpsValue.textContent = `${savedFps} FPS`;
       }
     } catch (err) { console.warn('Could not load game config:', err); }
   }
@@ -262,58 +261,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // ---- Play button (Genesis FPS patching + login config) ----
-  if (playButton) {
-    playButton.addEventListener('click', async () => {
-      if (!installDir) {
-        updateStatus('Please set an install location first');
-        await showInstallLocationDialog();
-        if (!installDir) return;
-      }
-      let exePath = path.join(installDir, 'SWGEmu.exe');
-      if (!fs.existsSync(exePath)) {
-        updateStatus('SWGEmu.exe not found. Please locate manually.');
-        const picked = await ipcRenderer.invoke('select-file');
-        if (!picked) return;
-        exePath = picked;
-        installDir = path.dirname(exePath);
-        await ipcRenderer.invoke('save-install-dir', installDir);
-        if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
-      }
-      
-      try {
-        // Step 1: Patch the executable with the desired FPS (Genesis method)
-        const settings = await ipcRenderer.invoke('get-settings');
-        const desiredFps = settings.maxFps || 60;
-        updateStatus(`Setting max FPS to ${desiredFps}...`);
-        const patchResult = await ipcRenderer.invoke('patch-game-fps', exePath, desiredFps);
-        if (!patchResult.success) {
-          updateStatus(`Warning: Could not patch FPS: ${patchResult.error}`);
-        } else {
-          updateStatus(`FPS patched to ${desiredFps}`);
-        }
-        
-        // Step 2: Write swgemu_login.cfg with server address and camera zoom
-        const serverInfo = await ipcRenderer.invoke('get-server-info');
-        const gameConfig = await ipcRenderer.invoke('get-game-config', installDir);
-        const zoom = gameConfig.maxCameraZoom || 10;
-        const loginCfg = `[ClientGame]\r\nloginServerAddress0=${serverInfo.ip}\r\nloginServerPort0=${serverInfo.port}\r\nfreeChaseCameraMaximumZoom=${zoom}\r\n0fd345d9 = true\r\n`;
-        const loginCfgPath = path.join(installDir, 'swgemu_login.cfg');
-        fs.writeFileSync(loginCfgPath, loginCfg, 'utf8');
-        updateStatus('Login configuration written');
-        
-        // Step 3: Launch the game with optional memory/arguments (Genesis style)
-        const ram = settings.ram || 750; // optional, default 750 MB
-        const result = await ipcRenderer.invoke('launch-game', { exePath, ram });
-        updateStatus(`${path.basename(exePath)} launched successfully (PID: ${result.pid})`);
-      } catch (error) {
-        updateStatus(`Launch failed: ${error.message}`);
-        alert(`Failed to launch game:\n${error.message}\n\nCheck antivirus or file permissions.`);
-      }
-    });
-  }
-
-  // ---- Patcher (multithread) ----
+  // ---- Core scan/repair function (mode: 'quick', 'full', 'repair') ----
   async function startScan(mode) {
     if (isScanning) return updateStatus('Scan already in progress');
     isScanning = true;
@@ -326,7 +274,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     try {
       updateStatus(`Starting ${mode} scan...`);
-      await ipcRenderer.invoke('save-scan-mode', mode);
+      if (mode !== 'repair') await ipcRenderer.invoke('save-scan-mode', mode);
       updateStatus('Loading file list from server...');
       const files = await ipcRenderer.invoke('load-required-files');
       const totalFiles = files.length;
@@ -343,7 +291,10 @@ window.addEventListener('DOMContentLoaded', () => {
             if (!valid) console.warn(`[MD5 Mismatch] ${file.name}: local=${localMd5}, expected=${file.md5}`);
           } catch (err) { valid = false; }
         }
-        if (!valid) filesToDownload.push(file);
+        // In repair mode, force re-download of any missing or mismatched file
+        if (mode === 'repair' && !valid) filesToDownload.push(file);
+        // In quick/full mode, only download if file is missing or mismatched (full also checks all, but same logic)
+        else if (mode !== 'repair' && !valid) filesToDownload.push(file);
         updateProgress(i + 1, totalFiles, 'total');
       }
 
@@ -364,7 +315,7 @@ window.addEventListener('DOMContentLoaded', () => {
           updateStatus('Patcher finished!');
           isScanning = false;
           ipcRenderer.removeListener('file-complete', fileCompleteHandler);
-          if (autoLaunchCheckbox && autoLaunchCheckbox.checked && playButton) {
+          if (autoLaunchCheckbox && autoLaunchCheckbox.checked && playButton && mode !== 'repair') {
             updateStatus('Auto-launching game...');
             setTimeout(() => playButton.click(), 1000);
           }
@@ -382,6 +333,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // ---- Button handlers ----
   if (quickScanButton) quickScanButton.addEventListener('click', () => {
     if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
     startScan('quick');
@@ -389,6 +341,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (fullScanButton) fullScanButton.addEventListener('click', () => {
     if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
     startScan('full');
+  });
+  if (repairButton) repairButton.addEventListener('click', () => {
+    if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
+    startScan('repair');
   });
   if (pauseButton) {
     pauseButton.addEventListener('click', async () => {
@@ -421,6 +377,54 @@ window.addEventListener('DOMContentLoaded', () => {
     require('electron').shell.openExternal('https://www.paypal.me/Fitzpatrick251');
     updateStatus('Opening PayPal donation page...');
   });
+
+  // ---- Play button (Genesis FPS patching + login config) ----
+  if (playButton) {
+    playButton.addEventListener('click', async () => {
+      if (!installDir) {
+        updateStatus('Please set an install location first');
+        await showInstallLocationDialog();
+        if (!installDir) return;
+      }
+      let exePath = path.join(installDir, 'SWGEmu.exe');
+      if (!fs.existsSync(exePath)) {
+        updateStatus('SWGEmu.exe not found. Please locate manually.');
+        const picked = await ipcRenderer.invoke('select-file');
+        if (!picked) return;
+        exePath = picked;
+        installDir = path.dirname(exePath);
+        await ipcRenderer.invoke('save-install-dir', installDir);
+        if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
+      }
+      
+      try {
+        const settings = await ipcRenderer.invoke('get-settings');
+        const desiredFps = settings.maxFps || 60;
+        updateStatus(`Setting max FPS to ${desiredFps}...`);
+        const patchResult = await ipcRenderer.invoke('patch-game-fps', exePath, desiredFps);
+        if (!patchResult.success) {
+          updateStatus(`Warning: Could not patch FPS: ${patchResult.error}`);
+        } else {
+          updateStatus(`FPS patched to ${desiredFps}`);
+        }
+        
+        const serverInfo = await ipcRenderer.invoke('get-server-info');
+        const gameConfig = await ipcRenderer.invoke('get-game-config', installDir);
+        const zoom = gameConfig.maxCameraZoom || 10;
+        const loginCfg = `[ClientGame]\r\nloginServerAddress0=${serverInfo.ip}\r\nloginServerPort0=${serverInfo.port}\r\nfreeChaseCameraMaximumZoom=${zoom}\r\n0fd345d9 = true\r\n`;
+        const loginCfgPath = path.join(installDir, 'swgemu_login.cfg');
+        fs.writeFileSync(loginCfgPath, loginCfg, 'utf8');
+        updateStatus('Login configuration written');
+        
+        const ram = settings.ram || 750;
+        const result = await ipcRenderer.invoke('launch-game', { exePath, ram });
+        updateStatus(`${path.basename(exePath)} launched successfully (PID: ${result.pid})`);
+      } catch (error) {
+        updateStatus(`Launch failed: ${error.message}`);
+        alert(`Failed to launch game:\n${error.message}\n\nCheck antivirus or file permissions.`);
+      }
+    });
+  }
 
   // ---- Server status ----
   async function refreshServerStatus() {
