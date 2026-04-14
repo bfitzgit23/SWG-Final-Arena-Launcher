@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>SWG TFA Launcher</title>
+  <title>SWG Returns Launcher (NGE)</title>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
@@ -67,7 +67,7 @@
       -webkit-app-region: no-drag;
     }
 
-    /* Window buttons - absolute top right */
+    /* Window controls - absolute top right */
     .window-controls {
       position: absolute;
       top: 15px;
@@ -226,7 +226,7 @@
       color: var(--gold);
       font-weight: bold;
       display: inline-block;
-      width: 70px;
+      width: 80px;
     }
     .server-online { color: #4caf50; }
     .server-offline { color: #f44336; }
@@ -283,7 +283,7 @@
       color: #66ff66;
     }
 
-    /* Modal (unchanged, responsive) */
+    /* Modal (responsive) */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -385,7 +385,7 @@
       .side-buttons { width: 32vw; min-width: 140px; right: 2%; }
       .play-button { left: 3%; width: 90px; height: 90px; font-size: 16px; }
       .info-panels { bottom: 10px; left: 10px; padding: 6px 10px; max-width: 240px; }
-      .info-label { width: 60px; }
+      .info-label { width: 70px; }
     }
     @media (max-width: 600px) {
       .side-buttons { width: 40vw; gap: 8px; }
@@ -469,7 +469,7 @@
       </button>
     </div>
 
-    <!-- Info Panels (label updated to SwgClient_r.exe) -->
+    <!-- Info Panels – updated executable label -->
     <div class="info-panels">
       <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
