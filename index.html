@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>SWG Returns Launcher</title>
+  <title>SWG TFA Launcher (NGE)</title>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap');
@@ -461,7 +461,7 @@
     <div class="info-panels">
       <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
-      <div><span class="info-label">SWGEmu.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
+      <div><span class="info-label">SwgClient_r.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
     </div>
 
     <div class="progress-container">
@@ -480,8 +480,8 @@
       const ctx = canvas.getContext('2d');
       let width, height;
       let stars = [];
-      let numStars = 400; // increased from 300 for more density
-      let speed = 6;      // slightly faster
+      let numStars = 400;
+      let speed = 6;
 
       function initStars() {
         stars = [];
@@ -490,10 +490,8 @@
             x: Math.random() * width * 2 - width,
             y: Math.random() * height * 2 - height,
             z: Math.random() * width,
-            // random base size between 1 and 3 (will be multiplied later)
             size: 1 + Math.random() * 2,
-            speed: 1 + Math.random() * 4, // varied speeds
-            // random brightness offset for variety
+            speed: 1 + Math.random() * 4,
             brightness: 0.6 + Math.random() * 0.4
           });
         }
@@ -508,13 +506,11 @@
       }
 
       function draw() {
-        // Clear with a semi-transparent black for trailing effect
         ctx.fillStyle = 'rgba(0,0,0,0.15)';
         ctx.fillRect(0, 0, width, height);
         
         for (let i = 0; i < stars.length; i++) {
           const s = stars[i];
-          // Move star toward center (warp effect)
           s.z -= s.speed * speed;
           if (s.z <= 0) {
             s.z = width;
@@ -522,23 +518,18 @@
             s.y = Math.random() * height * 2 - height;
           }
           
-          // Project to screen
           const factor = s.z / width;
           const x = s.x / factor + width / 2;
           const y = s.y / factor + height / 2;
           
-          // Star size: larger when closer (small z), but cap at 12px
           let r = (1 - factor) * 12;
           if (r < 0.5) r = 0.5;
-          // Apply random size variation
           r *= s.size;
           
-          // Brightness: brighter when closer, plus random variation
           let alpha = (1 - factor) * 0.9 + 0.1;
           alpha *= s.brightness;
           if (alpha > 0.9) alpha = 0.9;
           
-          // Draw star with a glow effect (larger transparent outer circle)
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(255, 240, 200, ${alpha * 0.5})`;
