@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (Carbonite / SWGEmu.exe)
+// main.js - SWG Returns Launcher (NGE / SwgClient_r.exe)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -22,7 +22,7 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 let rpc;
 
-const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
+const BASE_URL = 'http://15.204.254.253/tre/nge/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
 const SERVER_PORT = 44453;
@@ -91,7 +91,7 @@ function detectInstallDir() {
     app.getPath('home') + '\\SWGEmu',
   ];
   for (const p of commonPaths) {
-    if (fs.existsSync(p) && fs.existsSync(path.join(p, 'SWGEmu.exe'))) return p;
+    if (fs.existsSync(p) && fs.existsSync(path.join(p, 'SwgClient_r.exe'))) return p;
   }
   return null;
 }
@@ -264,11 +264,11 @@ ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
         floatBuf.writeFloatLE(fps);
         fs.writeSync(fd, floatBuf, 0, 4, 0x1156);
         fs.closeSync(fd);
-        log(`Patched SWGEmu.exe FPS to ${fps} at offset 0x1156`);
+        log(`Patched SwgClient_r.exe FPS to ${fps} at offset 0x1156`);
         resolve({ success: true });
       } else {
         fs.closeSync(fd);
-        resolve({ success: false, error: 'Executable signature mismatch – cannot patch FPS' });
+        resolve({ success: false, error: 'Executable signature mismatch – cannot patch FPS (NGE may use different offset)' });
       }
     } catch (err) {
       log(`FPS patching error: ${err.message}`, 'ERROR');
@@ -558,7 +558,7 @@ ipcMain.handle('select-directory', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 ipcMain.handle('select-file', async () => {
-  const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Select SWGEmu.exe', filters: [{ name: 'Executable', extensions: ['exe'] }] });
+  const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Select SwgClient_r.exe', filters: [{ name: 'Executable', extensions: ['exe'] }] });
   return result.canceled ? null : result.filePaths[0];
 });
 
