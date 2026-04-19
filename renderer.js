@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (NGE / SwgClient_r.exe)
+// renderer.js - SWG Returns Launcher (Carbonite / SWGEmu.exe)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -235,7 +235,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   async function checkExeStatus() {
     if (!installDir) { if (exeStatusSpan) exeStatusSpan.textContent = 'No directory'; return; }
-    const exePath = path.join(installDir, 'SwgClient_r.exe');
+    const exePath = path.join(installDir, 'SWGEmu.exe');
     if (!fs.existsSync(exePath)) { if (exeStatusSpan) exeStatusSpan.textContent = 'Not found'; return; }
     const result = await ipcRenderer.invoke('test-exe', exePath);
     if (exeStatusSpan) exeStatusSpan.textContent = result.valid ? `Valid (${result.version || 'v?'})` : `Invalid: ${result.error}`;
@@ -243,8 +243,8 @@ window.addEventListener('DOMContentLoaded', () => {
   if (testExeButton) {
     testExeButton.addEventListener('click', async () => {
       if (!installDir) { updateStatus('Set install directory first'); return; }
-      const exePath = path.join(installDir, 'SwgClient_r.exe');
-      if (!fs.existsSync(exePath)) { updateStatus('SwgClient_r.exe not found'); return; }
+      const exePath = path.join(installDir, 'SWGEmu.exe');
+      if (!fs.existsSync(exePath)) { updateStatus('SWGEmu.exe not found'); return; }
       updateStatus('Testing EXE...');
       const result = await ipcRenderer.invoke('test-exe', exePath);
       if (result.valid) updateStatus(`EXE valid, version: ${result.version || 'unknown'}`);
@@ -260,9 +260,9 @@ window.addEventListener('DOMContentLoaded', () => {
         await showInstallLocationDialog();
         if (!installDir) return;
       }
-      let exePath = path.join(installDir, 'SwgClient_r.exe');
+      let exePath = path.join(installDir, 'SWGEmu.exe');
       if (!fs.existsSync(exePath)) {
-        updateStatus('SwgClient_r.exe not found. Please locate manually.');
+        updateStatus('SWGEmu.exe not found. Please locate manually.');
         const picked = await ipcRenderer.invoke('select-file');
         if (!picked) return;
         exePath = picked;
@@ -292,7 +292,7 @@ window.addEventListener('DOMContentLoaded', () => {
         
         const ram = settings.ram || 750;
         const result = await ipcRenderer.invoke('launch-game', { exePath, ram });
-        updateStatus(`SwgClient_r.exe launched successfully (PID: ${result.pid})`);
+        updateStatus(`SWGEmu.exe launched successfully (PID: ${result.pid})`);
       } catch (error) {
         updateStatus(`Launch failed: ${error.message}`);
         alert(`Failed to launch game:\n${error.message}\n\nCheck antivirus or file permissions.`);
