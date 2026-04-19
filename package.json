@@ -1,13 +1,13 @@
 {
-  "name": "SWG-Final-Arena-launcher",
+  "name": "SWG-Returns-launcher",
   "version": "1.1.0",
-  "description": "SWG-Final-Arena Launcher",
+  "description": "SWG-Returns Launcher",
   "main": "main.js",
-  "author": "SWG-Final-Arena_Dev",
+  "author": "SWG-Returns_Dev",
   "license": "CC0-1.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bfitzgit23/SWG-Final-Arena-Launcher"
+    "url": "https://github.com/bfitzgit23/SWG-Returns-Launcher"
   },
   "homepage": "https://swgreturns.github.io",
   "keywords": [
@@ -51,8 +51,8 @@
     "uuid": "^9.0.0"
   },
   "build": {
-    "appId": "com.SWG-Final-Arena-Launcher.launcher",
-    "productName": "SWG-Final-Arena Launcher",
+    "appId": "com.SWG-Returns-Launcher.launcher",
+    "productName": "SWG-Returns Launcher",
     "directories": {
       "buildResources": "build",
       "output": "dist"
