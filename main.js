@@ -22,7 +22,7 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 let rpc;
 
-const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
+const BASE_URL = 'http://15.204.254.253/tre';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '15.204.254.253';
 const SERVER_PORT = 44453;
