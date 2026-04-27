@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU) with full game options
+// main.js - SWG Returns Launcher (PreCU) with manual update check
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -79,7 +79,30 @@ function setupAutoUpdater() {
 }
 autoUpdater.on('update-available', () => mainWindow && mainWindow.webContents.send('update-available'));
 autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('update-downloaded'));
+autoUpdater.on('update-not-available', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-not-available');
+});
+autoUpdater.on('error', (err) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-error', err.message);
+});
 ipcMain.handle('restart-and-update', () => autoUpdater.quitAndInstall());
+
+ipcMain.handle('check-for-updates-manual', async () => {
+  log('Manual update check requested');
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-not-available');
+      }
+    }
+  } catch (err) {
+    log(`Manual update check error: ${err.message}`, 'ERROR');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-error', err.message);
+    }
+  }
+});
 
 function detectInstallDir() {
   const commonPaths = [
@@ -206,7 +229,6 @@ ipcMain.handle('save-game-version', (event, version) => {
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
-    // Existing options.cfg content (if any)
     let existingConfig = {};
     if (fs.existsSync(optionsPath)) {
       const content = fs.readFileSync(optionsPath, 'utf8');
@@ -216,10 +238,8 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
         if (match) existingConfig[match[1]] = match[2].trim();
       }
     }
-    // Map settings to options.cfg keys (SWG client)
     const newConfig = {
       ...existingConfig,
-      // Resolution and display mode are typically handled by command line, but store in options.cfg as well
       screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
       screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
       fullscreen: settings.displayMode === 'fullscreen' ? 'true' : 'false',
@@ -246,7 +266,7 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   }
 });
 
-// FPS patching (unchanged)
+// FPS patching
 ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
   return new Promise((resolve) => {
     if (!fs.existsSync(exePath)) {
@@ -290,7 +310,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// Launch game with full settings and additional arguments
+// Launch game with full settings
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -298,7 +318,6 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
-    // Build command line arguments
     let args = [
       "--",
       "-s", "ClientGame", `loginServerAddress0=${SERVER_IP}`, `loginServerPort0=${SERVER_PORT}`,
@@ -307,7 +326,6 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
     if (settings.allowMultipleInstances) {
       args.push("-s", "SwgClient", "allowMultipleInstances=true");
     }
-    // Add resolution/display mode arguments if not default
     if (settings.displayMode === 'windowed') {
       args.push("-w");
     } else if (settings.displayMode === 'borderless') {
@@ -315,18 +333,15 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
     }
     const [w, h] = (settings.resolution || '1920x1080').split('x');
     args.push(`-r ${w} ${h}`);
-    // Additional user arguments
     if (settings.additionalArgs) {
       const extra = settings.additionalArgs.split(/\s+/);
       args.push(...extra);
     }
-    // Safe mode: add a known flag (client may not have it, but we pass anyway)
     if (settings.safeMode) {
       args.push("-safemode");
     }
     const env = Object.create(process.env);
     env.SWGCLIENT_MEMORY_SIZE_MB = settings.memoryMB || 4096;
-    
     log(`Launching ${exePath} with args: ${args.join(' ')}, memory: ${env.SWGCLIENT_MEMORY_SIZE_MB} MB`);
     const gameProcess = spawn(exePath, args, {
       cwd: exeDir,
@@ -350,15 +365,15 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   });
 });
 
-// --- Patcher with concurrent downloads and speed limit ---
+// Patcher with concurrent downloads and speed limit
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
 let patcherPaused = false;
-let MAX_CONCURRENT = 4;        // will be updated from settings
-let SPEED_LIMIT_BYTES = 0;     // 0 = unlimited
-let lastChunkTime = Date.now();
-let lastChunkBytes = 0;
+let MAX_CONCURRENT = 4;
+let SPEED_LIMIT_BYTES = 0;
+const MAX_RETRIES = 3;
+const DOWNLOAD_TIMEOUT = 120000;
 
 async function downloadFileWithResume(url, destination, expectedMd5, size, fileId, retryCount = 0) {
   return new Promise((resolve, reject) => {
@@ -385,13 +400,11 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
       let lastByteCount = downloadedBytes;
       response.on('data', (chunk) => {
         if (patcherPaused) { req.pause(); return; }
-        // Speed limiting
         if (SPEED_LIMIT_BYTES > 0) {
           const now = Date.now();
           const elapsed = (now - lastByteTimestamp) / 1000;
           const currentSpeed = (downloadedBytes - lastByteCount) / elapsed;
           if (currentSpeed > SPEED_LIMIT_BYTES) {
-            // Pause briefly
             req.pause();
             setTimeout(() => req.resume(), Math.ceil((downloadedBytes - lastByteCount) / SPEED_LIMIT_BYTES * 100));
           }
@@ -461,11 +474,7 @@ async function processQueue() {
   }
 }
 
-const MAX_RETRIES = 3;
-const DOWNLOAD_TIMEOUT = 120000;
-
 ipcMain.handle('patcher-start', async (event, files, installDir) => {
-  // Reload settings for concurrent downloads and speed limit
   const settingsPath = path.join(app.getPath('userData'), 'settings.json');
   if (fs.existsSync(settingsPath)) {
     try {
@@ -505,7 +514,7 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---- Server status ----
+// Server status
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
   try {
