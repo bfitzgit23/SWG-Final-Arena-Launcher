@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU / SWGEmu.exe)
+// main.js - SWG Returns Launcher (PreCU) with full game options
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -158,6 +158,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
+// IPC: Window controls
 ipcMain.handle('window:minimize', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize(); });
 ipcMain.handle('window:maximizeToggle', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -183,6 +184,7 @@ ipcMain.handle('set-zoom', async (event, percent) => {
   }
 });
 
+// Game version checker
 ipcMain.handle('check-game-version', async () => {
   try {
     const response = await axios.get(VERSION_URL, { timeout: 5000 });
@@ -200,35 +202,11 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-ipcMain.handle('get-game-config', async (event, installDir) => {
-  const optionsPath = path.join(installDir, 'options.cfg');
-  const defaults = { maxCameraZoom: 10 };
-  if (!fs.existsSync(optionsPath)) return defaults;
-  try {
-    const content = fs.readFileSync(optionsPath, 'utf8');
-    const config = {};
-    const lines = content.split(/\r?\n/);
-    for (const line of lines) {
-      const match = line.match(/^(\w+)\s*=\s*(.+)$/);
-      if (match) {
-        const key = match[1];
-        let value = match[2].trim();
-        if (!isNaN(value)) value = parseFloat(value);
-        config[key] = value;
-      }
-    }
-    return {
-      maxCameraZoom: config.maxCameraZoom ?? defaults.maxCameraZoom
-    };
-  } catch (err) {
-    log(`Error reading options.cfg: ${err.message}`, 'ERROR');
-    return defaults;
-  }
-});
-
-ipcMain.handle('save-game-config', async (event, installDir, gameConfig) => {
+// Write options.cfg from settings
+ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
+    // Existing options.cfg content (if any)
     let existingConfig = {};
     if (fs.existsSync(optionsPath)) {
       const content = fs.readFileSync(optionsPath, 'utf8');
@@ -238,10 +216,29 @@ ipcMain.handle('save-game-config', async (event, installDir, gameConfig) => {
         if (match) existingConfig[match[1]] = match[2].trim();
       }
     }
-    const newConfig = { ...existingConfig, ...gameConfig };
+    // Map settings to options.cfg keys (SWG client)
+    const newConfig = {
+      ...existingConfig,
+      // Resolution and display mode are typically handled by command line, but store in options.cfg as well
+      screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
+      screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
+      fullscreen: settings.displayMode === 'fullscreen' ? 'true' : 'false',
+      borderless: settings.displayMode === 'borderless' ? 'true' : 'false',
+      maxFramesPerSecond: settings.fpsLimit || 60,
+      shaderQuality: settings.shaderQuality === 'off' ? '0' : (settings.shaderQuality === 'low' ? '1' : (settings.shaderQuality === 'medium' ? '2' : '3')),
+      cacheSize: settings.cacheSize === 'small' ? '64' : (settings.cacheSize === 'medium' ? '128' : '256'),
+      soundEnabled: settings.soundEnabled ? 'true' : 'false',
+      hardwareMouseCursor: settings.hardwareCursor ? 'true' : 'false',
+      skipIntro: settings.skipIntro ? 'true' : 'false',
+      textureBaking: settings.textureBaking ? 'true' : 'false',
+      dot3Terrain: settings.dot3Terrain ? 'true' : 'false',
+      renderer: settings.renderer === 'vulkan' ? 'vulkan' : 'directx',
+      maxCameraZoom: settings.maxCameraZoom || 10,
+      safeMode: settings.safeMode ? 'true' : 'false'
+    };
     const lines = Object.entries(newConfig).map(([k, v]) => `${k} = ${v}`);
     fs.writeFileSync(optionsPath, lines.join('\n'), 'utf8');
-    log(`Saved game config to ${optionsPath}`);
+    log(`Updated options.cfg in ${installDir}`);
     return { success: true };
   } catch (err) {
     log(`Error writing options.cfg: ${err.message}`, 'ERROR');
@@ -249,6 +246,7 @@ ipcMain.handle('save-game-config', async (event, installDir, gameConfig) => {
   }
 });
 
+// FPS patching (unchanged)
 ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
   return new Promise((resolve) => {
     if (!fs.existsSync(exePath)) {
@@ -292,21 +290,43 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-ipcMain.handle('launch-game', async (event, { exePath, ram }) => {
+// Launch game with full settings and additional arguments
+ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
       reject(new Error(`Executable not found: ${exePath}`));
       return;
     }
     const exeDir = path.dirname(exePath);
-    const args = [
+    // Build command line arguments
+    let args = [
       "--",
       "-s", "ClientGame", `loginServerAddress0=${SERVER_IP}`, `loginServerPort0=${SERVER_PORT}`,
       "-s", "Station", "gameFeatures=34929",
-      "-s", "SwgClient", "allowMultipleInstances=true"
     ];
+    if (settings.allowMultipleInstances) {
+      args.push("-s", "SwgClient", "allowMultipleInstances=true");
+    }
+    // Add resolution/display mode arguments if not default
+    if (settings.displayMode === 'windowed') {
+      args.push("-w");
+    } else if (settings.displayMode === 'borderless') {
+      args.push("-borderless");
+    }
+    const [w, h] = (settings.resolution || '1920x1080').split('x');
+    args.push(`-r ${w} ${h}`);
+    // Additional user arguments
+    if (settings.additionalArgs) {
+      const extra = settings.additionalArgs.split(/\s+/);
+      args.push(...extra);
+    }
+    // Safe mode: add a known flag (client may not have it, but we pass anyway)
+    if (settings.safeMode) {
+      args.push("-safemode");
+    }
     const env = Object.create(process.env);
-    env.SWGCLIENT_MEMORY_SIZE_MB = ram || 750;
+    env.SWGCLIENT_MEMORY_SIZE_MB = settings.memoryMB || 4096;
+    
     log(`Launching ${exePath} with args: ${args.join(' ')}, memory: ${env.SWGCLIENT_MEMORY_SIZE_MB} MB`);
     const gameProcess = spawn(exePath, args, {
       cwd: exeDir,
@@ -330,14 +350,15 @@ ipcMain.handle('launch-game', async (event, { exePath, ram }) => {
   });
 });
 
-// Patcher (multithread with resume, retry, and longer timeout)
+// --- Patcher with concurrent downloads and speed limit ---
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
 let patcherPaused = false;
-const MAX_CONCURRENT = 4;
-const MAX_RETRIES = 3;
-const DOWNLOAD_TIMEOUT = 120000;
+let MAX_CONCURRENT = 4;        // will be updated from settings
+let SPEED_LIMIT_BYTES = 0;     // 0 = unlimited
+let lastChunkTime = Date.now();
+let lastChunkBytes = 0;
 
 async function downloadFileWithResume(url, destination, expectedMd5, size, fileId, retryCount = 0) {
   return new Promise((resolve, reject) => {
@@ -360,8 +381,23 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
       activeDownloads.set(fileId, { req, fileStream });
       let downloadedBytes = existingSize;
       const totalBytes = parseInt(response.headers['content-range']?.split('/').pop() || response.headers['content-length'], 10) || size;
+      let lastByteTimestamp = Date.now();
+      let lastByteCount = downloadedBytes;
       response.on('data', (chunk) => {
         if (patcherPaused) { req.pause(); return; }
+        // Speed limiting
+        if (SPEED_LIMIT_BYTES > 0) {
+          const now = Date.now();
+          const elapsed = (now - lastByteTimestamp) / 1000;
+          const currentSpeed = (downloadedBytes - lastByteCount) / elapsed;
+          if (currentSpeed > SPEED_LIMIT_BYTES) {
+            // Pause briefly
+            req.pause();
+            setTimeout(() => req.resume(), Math.ceil((downloadedBytes - lastByteCount) / SPEED_LIMIT_BYTES * 100));
+          }
+          lastByteTimestamp = now;
+          lastByteCount = downloadedBytes;
+        }
         downloadedBytes += chunk.length;
         fileStream.write(chunk);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -425,7 +461,20 @@ async function processQueue() {
   }
 }
 
+const MAX_RETRIES = 3;
+const DOWNLOAD_TIMEOUT = 120000;
+
 ipcMain.handle('patcher-start', async (event, files, installDir) => {
+  // Reload settings for concurrent downloads and speed limit
+  const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      MAX_CONCURRENT = settings.concurrentDownloads || 4;
+      const limitMB = settings.speedLimitMBps || 0;
+      SPEED_LIMIT_BYTES = limitMB * 1024 * 1024;
+    } catch (_) {}
+  }
   downloadQueue = [];
   activeDownloads.clear();
   patcherPaused = false;
@@ -456,6 +505,7 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
+// ---- Server status ----
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
   try {
@@ -477,6 +527,7 @@ ipcMain.handle('server-status', async () => {
   }
 });
 
+// Log viewer
 ipcMain.handle('get-log-content', () => {
   if (fs.existsSync(logFile)) return fs.readFileSync(logFile, 'utf8');
   return '';
@@ -497,6 +548,7 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
+// File list, MD5, download fallback, directory selection
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
@@ -562,6 +614,7 @@ ipcMain.handle('select-file', async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+// Settings management
 const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 ipcMain.handle('save-settings', (event, settings) => {
   try {
