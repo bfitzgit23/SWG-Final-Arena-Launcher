@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) – Clean launch, no env vars
+// main.js - SWG Returns Launcher (PreCU/Core3)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -22,8 +22,11 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 let rpc;
 
-const BASE_URL = 'http://144.217.255.58/tre/';
+// --- Patch server (where game files are downloaded from) ---
+const BASE_URL = 'http://15.204.254.253/tre/';
 const VERSION_URL = `${BASE_URL}version.txt`;
+
+// --- Game login server (where the client connects to play) ---
 const SERVER_IP = '144.217.255.58';
 const SERVER_PORT = 44453;
 
@@ -227,7 +230,7 @@ ipcMain.handle('set-zoom', async (event, percent) => {
   }
 });
 
-// Game version checker
+// Game version checker (now points to patch server)
 ipcMain.handle('check-game-version', async () => {
   try {
     const response = await axios.get(VERSION_URL, { timeout: 5000 });
@@ -245,7 +248,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg from settings - Preserves INI section format
+// Write options.cfg from settings - Preserves INI section format (unchanged)
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -399,9 +402,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// ------------------------------
-// FIXED GAME LAUNCH (no env vars, execFile, small delay)
-// ------------------------------
+// Launch game (clean, no env vars, no arguments)
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -409,29 +410,23 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
-
     log(`Launching: ${exePath}`);
     log(`Working directory: ${exeDir}`);
 
-    // Small delay to allow previous processes to fully exit (sometimes helps)
     setTimeout(() => {
-      // Use execFile – no extra arguments, no custom environment
       const gameProcess = execFile(exePath, [], {
         cwd: exeDir,
         detached: true,
         windowsHide: false,
-      }, (error, stdout, stderr) => {
+      }, (error) => {
         if (error) {
           log(`Process error: ${error.message}`, 'ERROR');
-          if (stderr) log(`stderr: ${stderr}`, 'ERROR');
           reject(error);
         } else {
           log('Process exited cleanly');
         }
       });
-
       gameProcess.unref();
-
       if (gameProcess.pid) {
         updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
         log(`Game launched with PID: ${gameProcess.pid}`);
@@ -443,14 +438,7 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   });
 });
 
-// ---- (all other handlers unchanged: patcher, server-status, log viewer, settings, etc.) ----
-// The rest of your existing handlers (load-required-files, check-md5, select-directory, etc.)
-// go here exactly as they were in your previous working version.
-
-// I'm copying the remaining unchanged parts from your previous main.js (the one that worked for patching).
-// To keep the answer concise, I'll include them below. They are identical to your last working `main.js`
-// except for the launch handler above.
-
+// ------------- Patcher (unchanged, uses BASE_URL for downloads) -------------
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
@@ -603,7 +591,7 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// Server status
+// Server status (ping the game server)
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
   try {
@@ -613,14 +601,20 @@ ipcMain.handle('server-status', async () => {
     const net = require('net');
     return new Promise(resolve => {
       const socket = new net.Socket();
-      const timeout = setTimeout(() => { socket.destroy(); resolve({ online: false, ping: null }); }, 3000);
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        resolve({ online: false, ping: null });
+      }, 3000);
       socket.connect(SERVER_PORT, SERVER_IP, () => {
         clearTimeout(timeout);
         const ping = Date.now() - start;
         socket.destroy();
         resolve({ online: true, ping, method: 'tcp' });
       });
-      socket.on('error', () => { clearTimeout(timeout); resolve({ online: false, ping: null }); });
+      socket.on('error', () => {
+        clearTimeout(timeout);
+        resolve({ online: false, ping: null });
+      });
     });
   }
 });
@@ -646,13 +640,16 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download fallback, directory selection (same as before)
+// File list, MD5, download fallback, directory selection
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
     log(`Loading file list from ${url}`);
     const req = http.get(url, response => {
-      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
       let data = '';
       response.on('data', chunk => (data += chunk));
       response.on('end', () => {
@@ -662,7 +659,9 @@ ipcMain.handle('load-required-files', async () => {
           const valid = jsonData.filter(item => item && item.name && item.url && item.md5 && item.size > 0);
           log(`Loaded ${valid.length} valid files`);
           resolve(valid);
-        } catch (error) { reject(new Error('JSON parse failed: ' + error.message)); }
+        } catch (error) {
+          reject(new Error('JSON parse failed: ' + error.message));
+        }
       });
     });
     req.on('error', error => reject(new Error('Network error: ' + error.message)));
@@ -683,7 +682,10 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 })
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
     const req = http.get(url, response => {
-      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
       response.pipe(file);
       file.on('finish', () => {
         file.close();
@@ -693,10 +695,16 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 })
           readStream.on('data', d => hash.update(d));
           readStream.on('end', () => {
             const md5 = hash.digest('hex');
-            if (md5 !== expectedMd5) { fs.unlinkSync(destination); reject(new Error('MD5 mismatch')); }
-            else resolve({ path: destination, md5 });
+            if (md5 !== expectedMd5) {
+              fs.unlinkSync(destination);
+              reject(new Error('MD5 mismatch'));
+            } else {
+              resolve({ path: destination, md5 });
+            }
           });
-        } else resolve({ path: destination });
+        } else {
+          resolve({ path: destination });
+        }
       });
     });
     req.on('error', reject);
