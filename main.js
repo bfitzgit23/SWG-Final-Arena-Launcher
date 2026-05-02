@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) – server status forced online
+// main.js - SWG Returns Launcher (PreCU) – server status always online, version check graceful
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -230,7 +230,7 @@ ipcMain.handle('set-zoom', async (event, percent) => {
   }
 });
 
-// Game version checker (points to patch server)
+// Game version checker – graceful on 404
 ipcMain.handle('check-game-version', async () => {
   try {
     const response = await axios.get(VERSION_URL, { timeout: 5000 });
@@ -241,7 +241,8 @@ ipcMain.handle('check-game-version', async () => {
     return { remoteVersion, localVersion, needsUpdate: remoteVersion !== localVersion };
   } catch (error) {
     log(`Version check failed: ${error.message}`, 'ERROR');
-    return { error: error.message };
+    // Return a friendly object instead of error
+    return { remoteVersion: 'unknown', localVersion: 'none', needsUpdate: false };
   }
 });
 ipcMain.handle('save-game-version', (event, version) => {
@@ -591,11 +592,10 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- SERVER STATUS: always ONLINE (the game client handles actual login) ----------
+// ---------- SERVER STATUS: always ONLINE, no dummy method ----------
 ipcMain.handle('server-status', async () => {
-  // The launcher's server status is cosmetic. The game client connects directly to the login server.
-  // Return ONLINE to avoid confusion.
-  return { online: true, ping: 0, method: 'dummy' };
+  // The launcher's server status is cosmetic. Return only online flag.
+  return { online: true };
 });
 
 // Log viewer
