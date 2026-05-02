@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) – smart server status
+// main.js - SWG Returns Launcher (PreCU/Core3) – dual server status (game + patch)
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -591,44 +591,51 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- SMART SERVER STATUS: try TCP, fallback to HTTP ping on patch server ----------
+// ---------- DUAL SERVER STATUS: check both game login server (TCP) and patch server (HTTP) ----------
 ipcMain.handle('server-status', async () => {
   const net = require('net');
-  // First, try to connect to the game login server
+  const results = [];
+
+  // 1. Check game login server via TCP
   const tcpStart = Date.now();
   const tcpResult = await new Promise((resolve) => {
     const socket = new net.Socket();
     const timeout = setTimeout(() => {
       socket.destroy();
-      resolve({ online: false, ping: null, method: 'tcp', error: 'timeout' });
-    }, 4000);
+      resolve({ online: false, ping: null, method: 'TCP (game server)', error: 'timeout' });
+    }, 3000);
     socket.connect(SERVER_PORT, SERVER_IP, () => {
       clearTimeout(timeout);
       const ping = Date.now() - tcpStart;
       socket.destroy();
-      resolve({ online: true, ping, method: 'tcp' });
+      resolve({ online: true, ping, method: 'TCP (game server)' });
     });
     socket.on('error', (err) => {
       clearTimeout(timeout);
-      resolve({ online: false, ping: null, method: 'tcp', error: err.message });
+      resolve({ online: false, ping: null, method: 'TCP (game server)', error: err.message });
     });
   });
+  results.push(tcpResult);
 
-  if (tcpResult.online) {
-    // Game login server responded
-    return { online: true, ping: tcpResult.ping, method: 'tcp' };
-  }
-
-  // If TCP fails, try to ping the patch server's web server (which we know is online)
-  // This gives a "server online" indication even if the login port is blocked.
-  log(`TCP ping to login server failed: ${tcpResult.error} – falling back to patch server ping`, 'WARN');
+  // 2. Check patch server via HTTP
   const httpStart = Date.now();
+  let httpResult = { online: false, ping: null, method: 'HTTP (patch server)' };
   try {
-    await axios.get(`http://${BASE_URL.split('/')[2]}/`, { timeout: 3000 });
-    const ping = Date.now() - httpStart;
-    return { online: true, ping, method: 'http (patch server)' };
+    await axios.get(`http://${BASE_URL.split('/')[2]}`, { timeout: 3000 });
+    httpResult.online = true;
+    httpResult.ping = Date.now() - httpStart;
   } catch (err) {
-    // Both methods failed – server is probably down
+    httpResult.error = err.message;
+  }
+  results.push(httpResult);
+
+  // If either succeeded, return the fastest online result
+  const onlineResults = results.filter(r => r.online);
+  if (onlineResults.length > 0) {
+    const best = onlineResults.reduce((a, b) => (a.ping < b.ping ? a : b));
+    return { online: true, ping: best.ping, method: best.method };
+  } else {
+    // Both failed
     return { online: false, ping: null, method: 'none' };
   }
 });
