@@ -219,7 +219,7 @@
       color: var(--gold);
       font-weight: bold;
       display: inline-block;
-      width: 80px;
+      width: 70px;
     }
     .server-online { color: #4caf50; }
     .server-offline { color: #f44336; }
@@ -557,16 +557,6 @@
       </div>
     </div>
 
-    <!-- Legacy settings (hidden but kept for compatibility) -->
-    <div style="display: none;">
-      <select id="scan-mode-select"><option>quick</option></select>
-      <input type="checkbox" id="auto-launch-checkbox">
-      <input type="checkbox" id="auto-update-checkbox">
-      <input type="checkbox" id="minimize-to-tray-checkbox">
-      <input type="number" id="timeout-input">
-      <input type="range" id="zoom-slider"><span id="zoom-value"></span>
-    </div>
-
     <button class="side-button" id="save-settings">SAVE CLIENT OPTIONS</button>
     <div class="setting-hint" style="margin-top: 10px;">These settings are written to options.cfg in your game install directory. Changes take effect on next game launch.</div>
   </div>
@@ -596,10 +586,8 @@
       </button>
     </div>
 
-    <!-- Info Panels – two separate server lines -->
     <div class="info-panels">
-      <div><span class="info-label">Game Server:</span> <span id="game-server-status">Checking...</span> <button id="refresh-game-server" class="test-exe-btn">⟳</button></div>
-      <div><span class="info-label">Patch Server:</span> <span id="patch-server-status">Checking...</span> <button id="refresh-patch-server" class="test-exe-btn">⟳</button></div>
+      <div><span class="info-label">Server:</span> <span id="server-status">Checking...</span> <button id="refresh-server" class="test-exe-btn">⟳</button></div>
       <div><span class="info-label">Game ver:</span> <span id="game-version">--</span> <button id="check-updates" class="test-exe-btn">Check</button></div>
       <div><span class="info-label">SWGEmu.exe:</span> <span id="exe-status">Not tested</span> <button id="test-exe-button" class="test-exe-btn">Test</button></div>
     </div>
@@ -615,7 +603,7 @@
 
   <script src="renderer.js"></script>
   <script>
-    // Animated hyperspace stars (unchanged)
+    // Animated hyperspace stars
     (function() {
       const canvas = document.getElementById('hyperspace-canvas');
       const ctx = canvas.getContext('2d');
