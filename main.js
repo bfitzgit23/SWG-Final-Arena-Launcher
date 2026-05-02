@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (PreCU) with manual update check
+// main.js - SWG Returns Launcher (PreCU/Core3) with improved launch
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { execFile, spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const axios = require('axios');
 
 let DiscordRPC;
@@ -22,7 +22,7 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 let rpc;
 
-const BASE_URL = 'http://15.204.254.253/tre/';
+const BASE_URL = 'http://144.217.255.58/tre/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const SERVER_IP = '144.217.255.58';
 const SERVER_PORT = 44453;
@@ -106,7 +106,9 @@ ipcMain.handle('check-for-updates-manual', async () => {
 
 function detectInstallDir() {
   const commonPaths = [
-    'C:\\Program Files\\SWGEmu', 'C:\\SWGEmu', 'D:\\SWGEmu',
+    'C:\\Program Files\\SWGEmu',
+    'C:\\SWGEmu',
+    'D:\\SWGEmu',
     'C:\\Program Files (x86)\\SWGEmu',
     process.env.ProgramFiles + '\\SWGEmu',
     process.env['ProgramFiles(x86)'] + '\\SWGEmu',
@@ -126,13 +128,19 @@ function toggleFullscreen(win) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280, height: 720,
+    width: 1280,
+    height: 720,
     useContentSize: true,
-    frame: false, transparent: true,
-    resizable: true, minimizable: true, maximizable: true, fullscreenable: true,
-    backgroundColor: '#00000000', hasShadow: false,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false },
-    show: false
+    show: false,
   });
   mainWindow.setMinimumSize(1024, 600);
   mainWindow.loadFile('index.html');
@@ -178,19 +186,31 @@ app.whenReady().then(() => {
   log('Launcher started');
 });
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});
 
 // IPC: Window controls
-ipcMain.handle('window:minimize', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize(); });
+ipcMain.handle('window:minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
 ipcMain.handle('window:maximizeToggle', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
 });
-ipcMain.handle('window:close', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close(); });
+ipcMain.handle('window:close', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
 ipcMain.handle('window:toggleFullscreen', () => toggleFullscreen(mainWindow));
-ipcMain.handle('window:isMaximized', () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false);
-ipcMain.handle('window:isFullscreen', () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.isFullScreen() : false);
+ipcMain.handle('window:isMaximized', () =>
+  mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false,
+);
+ipcMain.handle('window:isFullscreen', () =>
+  mainWindow && !mainWindow.isDestroyed() ? mainWindow.isFullScreen() : false,
+);
 
 ipcMain.handle('set-zoom', async (event, percent) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -225,40 +245,105 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg from settings
+// Write options.cfg from settings - Preserves INI section format
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
-    let existingConfig = {};
+    let originalLines = [];
     if (fs.existsSync(optionsPath)) {
       const content = fs.readFileSync(optionsPath, 'utf8');
-      const lines = content.split(/\r?\n/);
-      for (const line of lines) {
-        const match = line.match(/^(\w+)\s*=\s*(.+)$/);
-        if (match) existingConfig[match[1]] = match[2].trim();
-      }
+      originalLines = content.split(/\r?\n/);
     }
-    const newConfig = {
-      ...existingConfig,
+    
+    const updatedSettings = {
       screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
       screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
-      fullscreen: settings.displayMode === 'fullscreen' ? 'true' : 'false',
-      borderless: settings.displayMode === 'borderless' ? 'true' : 'false',
-      maxFramesPerSecond: settings.fpsLimit || 60,
-      shaderQuality: settings.shaderQuality === 'off' ? '0' : (settings.shaderQuality === 'low' ? '1' : (settings.shaderQuality === 'medium' ? '2' : '3')),
-      cacheSize: settings.cacheSize === 'small' ? '64' : (settings.cacheSize === 'medium' ? '128' : '256'),
-      soundEnabled: settings.soundEnabled ? 'true' : 'false',
-      hardwareMouseCursor: settings.hardwareCursor ? 'true' : 'false',
-      skipIntro: settings.skipIntro ? 'true' : 'false',
-      textureBaking: settings.textureBaking ? 'true' : 'false',
-      dot3Terrain: settings.dot3Terrain ? 'true' : 'false',
-      renderer: settings.renderer === 'vulkan' ? 'vulkan' : 'directx',
+      fullscreen: settings.displayMode === 'fullscreen' ? 1 : 0,
+      borderlessWindow: settings.displayMode === 'borderless' ? 1 : 0,
+      windowed: settings.displayMode === 'windowed' ? 1 : 0,
+      useHardwareMouseCursor: settings.hardwareCursor ? 1 : 0,
+      skipIntro: settings.skipIntro ? 1 : 0,
+      textureBaking: settings.textureBaking ? 1 : 0,
+      dot3Terrain: settings.dot3Terrain ? 1 : 0,
       maxCameraZoom: settings.maxCameraZoom || 10,
-      safeMode: settings.safeMode ? 'true' : 'false'
+      cache: settings.cacheSize === 'small' ? 'misc/cache_small.iff' : (settings.cacheSize === 'medium' ? 'misc/cache_medium.iff' : 'misc/cache_large.iff'),
     };
-    const lines = Object.entries(newConfig).map(([k, v]) => `${k} = ${v}`);
-    fs.writeFileSync(optionsPath, lines.join('\n'), 'utf8');
-    log(`Updated options.cfg in ${installDir}`);
+    
+    const newLines = [];
+    let inClientGraphics = false;
+    let inSharedUtility = false;
+    let updatedKeys = new Set();
+    
+    for (const line of originalLines) {
+      let newLine = line;
+      let updated = false;
+      
+      if (line.match(/^\[ClientGraphics\]/)) {
+        inClientGraphics = true;
+        inSharedUtility = false;
+      } else if (line.match(/^\[SharedUtility\]/)) {
+        inClientGraphics = false;
+        inSharedUtility = true;
+      } else if (line.match(/^\[/)) {
+        inClientGraphics = false;
+        inSharedUtility = false;
+      }
+      
+      if (inClientGraphics) {
+        const match = line.match(/^\s*(\w+)\s*=\s*(.+)$/);
+        if (match) {
+          const key = match[1];
+          if (updatedSettings.hasOwnProperty(key)) {
+            const indent = line.match(/^(\s*)/)[1];
+            newLine = `${indent}${key}=${updatedSettings[key]}`;
+            updatedKeys.add(key);
+            updated = true;
+          }
+        }
+      }
+      
+      if (inSharedUtility) {
+        const match = line.match(/^\s*cache\s*=\s*(.+)$/);
+        if (match) {
+          const indent = line.match(/^(\s*)/)[1];
+          newLine = `${indent}cache=${updatedSettings.cache}`;
+          updatedKeys.add('cache');
+          updated = true;
+        }
+      }
+      
+      newLines.push(updated ? newLine : line);
+    }
+    
+    const missingKeys = Object.keys(updatedSettings).filter(k => !updatedKeys.has(k) && k !== 'cache');
+    if (missingKeys.length > 0) {
+      let clientGraphicsIndex = -1;
+      let insertIndex = -1;
+      for (let i = 0; i < newLines.length; i++) {
+        if (newLines[i].match(/^\[ClientGraphics\]/)) {
+          clientGraphicsIndex = i;
+          insertIndex = i + 1;
+        } else if (clientGraphicsIndex !== -1 && newLines[i].match(/^\[/)) {
+          break;
+        } else if (clientGraphicsIndex !== -1 && insertIndex === clientGraphicsIndex + 1 && newLines[i].trim() === '') {
+          insertIndex = i + 1;
+        }
+      }
+      
+      if (insertIndex !== -1) {
+        const indent = '	';
+        for (const key of missingKeys) {
+          if (key !== 'cache') {
+            newLines.splice(insertIndex, 0, `${indent}${key}=${updatedSettings[key]}`);
+            log(`Added missing option: ${key}`);
+            insertIndex++;
+          }
+        }
+      }
+    }
+    
+    fs.writeFileSync(optionsPath, newLines.join('\n'), 'utf8');
+    log(`Updated options.cfg in ${installDir} (preserved INI format)`);
     return { success: true };
   } catch (err) {
     log(`Error writing options.cfg: ${err.message}`, 'ERROR');
@@ -266,9 +351,9 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   }
 });
 
-// FPS patching
+// FPS patching for PreCU
 ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     if (!fs.existsSync(exePath)) {
       resolve({ success: false, error: 'Executable not found' });
       return;
@@ -277,7 +362,12 @@ ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
       const fd = fs.openSync(exePath, 'r+');
       const buf = Buffer.alloc(7);
       const bytesRead = fs.readSync(fd, buf, 0, 7, 0x1153);
-      if (bytesRead === 7 && buf.readUInt8(0) === 0xc7 && buf.readUInt8(1) === 0x45 && buf.readUInt8(2) === 0x94) {
+      if (
+        bytesRead === 7 &&
+        buf.readUInt8(0) === 0xc7 &&
+        buf.readUInt8(1) === 0x45 &&
+        buf.readUInt8(2) === 0x94
+      ) {
         const floatBuf = Buffer.alloc(4);
         floatBuf.writeFloatLE(fps);
         fs.writeSync(fd, floatBuf, 0, 4, 0x1156);
@@ -310,7 +400,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// Launch game with full settings
+// Launch game for PreCU (Core3) - with fallback and improved diagnostics
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -318,49 +408,66 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
-    let args = [
-      "--",
-      "-s", "ClientGame", `loginServerAddress0=${SERVER_IP}`, `loginServerPort0=${SERVER_PORT}`,
-      "-s", "Station", "gameFeatures=34929",
-    ];
-    if (settings.allowMultipleInstances) {
-      args.push("-s", "SwgClient", "allowMultipleInstances=true");
-    }
-    if (settings.displayMode === 'windowed') {
-      args.push("-w");
-    } else if (settings.displayMode === 'borderless') {
-      args.push("-borderless");
-    }
-    const [w, h] = (settings.resolution || '1920x1080').split('x');
-    args.push(`-r ${w} ${h}`);
-    if (settings.additionalArgs) {
-      const extra = settings.additionalArgs.split(/\s+/);
-      args.push(...extra);
-    }
-    if (settings.safeMode) {
-      args.push("-safemode");
-    }
-    const env = Object.create(process.env);
-    env.SWGCLIENT_MEMORY_SIZE_MB = settings.memoryMB || 4096;
-    log(`Launching ${exePath} with args: ${args.join(' ')}, memory: ${env.SWGCLIENT_MEMORY_SIZE_MB} MB`);
-    const gameProcess = spawn(exePath, args, {
+    log(`Launching: ${exePath}`);
+    log(`Working directory: ${exeDir}`);
+    
+    // Attempt 1: spawn with detached
+    const gameProcess = spawn(exePath, [], {
       cwd: exeDir,
-      env: env,
       detached: true,
       stdio: 'ignore',
-      windowsHide: false
+      windowsHide: false,
+      shell: false
     });
+    
+    let resolved = false;
+    
     gameProcess.on('error', (err) => {
       log(`Spawn error: ${err.message}`, 'ERROR');
-      reject(err);
+      if (!resolved) {
+        // Fallback: execFile with shell
+        log('Fallback: execFile');
+        const fallbackProcess = execFile(exePath, [], {
+          cwd: exeDir,
+          windowsHide: false
+        }, (error) => {
+          if (error) {
+            log(`Fallback error: ${error.message}`, 'ERROR');
+            reject(error);
+          } else {
+            resolved = true;
+            resolve({ success: true, pid: fallbackProcess.pid, method: 'execFile' });
+          }
+        });
+        fallbackProcess.unref();
+      }
     });
+    
+    gameProcess.on('spawn', () => {
+      log(`Spawn succeeded, PID: ${gameProcess.pid}`);
+    });
+    
+    gameProcess.on('exit', (code) => {
+      log(`Process exited with code ${code}`);
+      if (!resolved && code !== 0 && code !== null) {
+        reject(new Error(`Process exited with code ${code}`));
+      }
+    });
+    
     gameProcess.unref();
+    
     if (gameProcess.pid) {
+      resolved = true;
       updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
       log(`Game launched with PID: ${gameProcess.pid}`);
-      resolve({ success: true, pid: gameProcess.pid });
+      resolve({ success: true, pid: gameProcess.pid, method: 'spawn' });
     } else {
-      reject(new Error('Failed to obtain process ID'));
+      // Wait a short time for PID
+      setTimeout(() => {
+        if (!resolved && !gameProcess.pid) {
+          reject(new Error('Failed to obtain process ID'));
+        }
+      }, 1000);
     }
   });
 });
@@ -383,7 +490,7 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
     if (fs.existsSync(destination)) existingSize = fs.statSync(destination).size;
     const requestOptions = { headers: {} };
     if (existingSize > 0) requestOptions.headers.Range = `bytes=${existingSize}-`;
-    const req = http.get(url, requestOptions, (response) => {
+    const req = http.get(url, requestOptions, response => {
       if (response.statusCode === 200 && existingSize > 0) {
         fs.writeFileSync(destination, '');
         existingSize = 0;
@@ -398,15 +505,18 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
       const totalBytes = parseInt(response.headers['content-range']?.split('/').pop() || response.headers['content-length'], 10) || size;
       let lastByteTimestamp = Date.now();
       let lastByteCount = downloadedBytes;
-      response.on('data', (chunk) => {
-        if (patcherPaused) { req.pause(); return; }
+      response.on('data', chunk => {
+        if (patcherPaused) {
+          req.pause();
+          return;
+        }
         if (SPEED_LIMIT_BYTES > 0) {
           const now = Date.now();
           const elapsed = (now - lastByteTimestamp) / 1000;
           const currentSpeed = (downloadedBytes - lastByteCount) / elapsed;
           if (currentSpeed > SPEED_LIMIT_BYTES) {
             req.pause();
-            setTimeout(() => req.resume(), Math.ceil((downloadedBytes - lastByteCount) / SPEED_LIMIT_BYTES * 100));
+            setTimeout(() => req.resume(), Math.ceil(((downloadedBytes - lastByteCount) / SPEED_LIMIT_BYTES) * 100));
           }
           lastByteTimestamp = now;
           lastByteCount = downloadedBytes;
@@ -429,15 +539,19 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
             if (md5 !== expectedMd5) {
               fs.unlinkSync(destination);
               reject(new Error('MD5 mismatch'));
-            } else resolve({ path: destination, md5 });
+            } else {
+              resolve({ path: destination, md5 });
+            }
           });
           readStream.on('error', reject);
-        } else resolve({ path: destination });
+        } else {
+          resolve({ path: destination });
+        }
         processQueue();
       });
       response.on('error', reject);
     });
-    req.on('error', (err) => {
+    req.on('error', err => {
       if (retryCount < MAX_RETRIES) {
         log(`Download failed for ${fileId}, retrying (${retryCount + 1}/${MAX_RETRIES})...`, 'WARN');
         setTimeout(() => {
@@ -493,9 +607,11 @@ ipcMain.handle('patcher-start', async (event, files, installDir) => {
     const fileId = `file_${i}`;
     const url = file.url && file.url.startsWith('http') ? file.url : BASE_URL + file.name;
     downloadQueue.push({
-      file: { ...file, url }, destination, fileId,
+      file: { ...file, url },
+      destination,
+      fileId,
       resolve: () => event.sender.send('file-complete', { fileId, success: true }),
-      reject: (err) => event.sender.send('file-complete', { fileId, success: false, error: err.message })
+      reject: err => event.sender.send('file-complete', { fileId, success: false, error: err.message }),
     });
   }
   processQueue();
@@ -522,7 +638,7 @@ ipcMain.handle('server-status', async () => {
     return { online: true, ping: Date.now() - start, method: 'http' };
   } catch {
     const net = require('net');
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const socket = new net.Socket();
       const timeout = setTimeout(() => { socket.destroy(); resolve({ online: false, ping: null }); }, 3000);
       socket.connect(SERVER_PORT, SERVER_IP, () => {
@@ -562,10 +678,13 @@ ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
     log(`Loading file list from ${url}`);
-    const req = http.get(url, (response) => {
-      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+    const req = http.get(url, response => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
       let data = '';
-      response.on('data', (chunk) => (data += chunk));
+      response.on('data', chunk => (data += chunk));
       response.on('end', () => {
         try {
           const jsonData = JSON.parse(data);
@@ -573,10 +692,12 @@ ipcMain.handle('load-required-files', async () => {
           const valid = jsonData.filter(item => item && item.name && item.url && item.md5 && item.size > 0);
           log(`Loaded ${valid.length} valid files`);
           resolve(valid);
-        } catch (error) { reject(new Error('JSON parse failed: ' + error.message)); }
+        } catch (error) {
+          reject(new Error('JSON parse failed: ' + error.message));
+        }
       });
     });
-    req.on('error', (error) => reject(new Error('Network error: ' + error.message)));
+    req.on('error', error => reject(new Error('Network error: ' + error.message)));
     req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
   });
 });
@@ -593,8 +714,11 @@ ipcMain.handle('check-md5', async (event, filePath) => {
 ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 }) => {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
-    const req = http.get(url, (response) => {
-      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+    const req = http.get(url, response => {
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
       response.pipe(file);
       file.on('finish', () => {
         file.close();
@@ -604,10 +728,16 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 })
           readStream.on('data', d => hash.update(d));
           readStream.on('end', () => {
             const md5 = hash.digest('hex');
-            if (md5 !== expectedMd5) { fs.unlinkSync(destination); reject(new Error('MD5 mismatch')); }
-            else resolve({ path: destination, md5 });
+            if (md5 !== expectedMd5) {
+              fs.unlinkSync(destination);
+              reject(new Error('MD5 mismatch'));
+            } else {
+              resolve({ path: destination, md5 });
+            }
           });
-        } else resolve({ path: destination });
+        } else {
+          resolve({ path: destination });
+        }
       });
     });
     req.on('error', reject);
@@ -632,7 +762,9 @@ ipcMain.handle('save-settings', (event, settings) => {
     const merged = { ...existing, ...settings };
     fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
     return { success: true };
-  } catch (error) { return { success: false, error: error.message }; }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 ipcMain.handle('get-settings', () => {
   const settingsPath = getSettingsPath();
@@ -667,7 +799,9 @@ ipcMain.handle('clear-cache', async () => {
     let cleared = false;
     for (const p of cachePaths) if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); cleared = true; }
     return { success: true, message: cleared ? 'Cache cleared' : 'Cache empty' };
-  } catch (error) { return { success: false, error: `Failed: ${error.message}` }; }
+  } catch (error) {
+    return { success: false, error: `Failed: ${error.message}` };
+  }
 });
 ipcMain.handle('open-logs', async () => {
   const logPath = path.join(app.getPath('userData'), 'logs');
@@ -678,9 +812,9 @@ ipcMain.handle('open-logs', async () => {
   return { success: true };
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', error => {
   try { fs.appendFileSync(logFile, `${new Date().toISOString()} - Uncaught Exception: ${error.stack}\n`); } catch(_) {}
 });
-process.on('unhandledRejection', (reason) => {
+process.on('unhandledRejection', reason => {
   try { fs.appendFileSync(logFile, `${new Date().toISOString()} - Unhandled Rejection: ${reason}\n`); } catch(_) {}
 });
