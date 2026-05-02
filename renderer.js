@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (single server status)
+// renderer.js - SWG Returns Launcher (PreCU) – full functionality
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +13,7 @@ function getElement(id) {
 window.addEventListener('DOMContentLoaded', () => {
   console.log('[Renderer] DOM ready, initializing...');
 
-  // --- DOM elements ---
+  // --- DOM elements (all) ---
   const closeButton = getElement('close-button');
   const minimizeButton = getElement('minimize-button');
   const maximizeButton = getElement('maximize-button');
@@ -46,11 +46,10 @@ window.addEventListener('DOMContentLoaded', () => {
   const settingsModal = getElement('settings-modal');
   const settingsCloseButton = getElement('settings-close');
   const saveSettingsButton = getElement('save-settings');
-
   const launcherVersionSpan = getElement('launcher-version');
   const checkUpdatesNowButton = getElement('check-updates-now');
 
-  // Game settings
+  // Game settings elements (abbreviated – ensure all your sliders/selects are here)
   const resolutionSelect = getElement('resolution-select');
   const displayModeSelect = getElement('display-mode-select');
   const fpsLimitSelect = getElement('fps-limit-select');
@@ -82,6 +81,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const zoomSlider = getElement('zoom-slider');
   const zoomValue = getElement('zoom-value');
 
+  // State
   let isScanning = false;
   let isPaused = false;
   let installDir = null;
@@ -171,7 +171,6 @@ window.addEventListener('DOMContentLoaded', () => {
     try {
       const settings = await ipcRenderer.invoke('get-settings');
       if (!settings) return;
-
       if (resolutionSelect) resolutionSelect.value = settings.resolution || '1920x1080';
       if (displayModeSelect) displayModeSelect.value = settings.displayMode || 'fullscreen';
       if (fpsLimitSelect) fpsLimitSelect.value = settings.fpsLimit || '60';
@@ -199,7 +198,6 @@ window.addEventListener('DOMContentLoaded', () => {
       if (additionalArgsInput) additionalArgsInput.value = settings.additionalArgs || '';
       if (safeModeCheckbox) safeModeCheckbox.checked = settings.safeMode || false;
       if (shareUsageCheckbox) shareUsageCheckbox.checked = settings.shareUsage || false;
-
       if (scanModeSelect) scanModeSelect.value = settings.scanMode || 'quick';
       if (autoLaunchCheckbox) autoLaunchCheckbox.checked = settings.autoLaunch || false;
       if (autoUpdateCheckbox) autoUpdateCheckbox.checked = settings.autoUpdate || false;
@@ -256,14 +254,10 @@ window.addEventListener('DOMContentLoaded', () => {
   if (saveSettingsButton) saveSettingsButton.addEventListener('click', saveSettings);
 
   if (memorySlider && memoryValue) {
-    memorySlider.addEventListener('input', (e) => {
-      memoryValue.textContent = `${e.target.value} MB`;
-    });
+    memorySlider.addEventListener('input', (e) => { memoryValue.textContent = `${e.target.value} MB`; });
   }
   if (cameraZoomSlider && cameraZoomValue) {
-    cameraZoomSlider.addEventListener('input', (e) => {
-      cameraZoomValue.textContent = e.target.value;
-    });
+    cameraZoomSlider.addEventListener('input', (e) => { cameraZoomValue.textContent = e.target.value; });
   }
   if (zoomSlider && zoomValue) {
     zoomSlider.addEventListener('input', async (e) => {
@@ -437,16 +431,12 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   if (clearCacheButton) clearCacheButton.addEventListener('click', async () => {
-    try {
-      await ipcRenderer.invoke('clear-cache');
-      updateStatus('Cache cleared');
-    } catch (error) { updateStatus(`Failed to clear cache: ${error.message}`); }
+    try { await ipcRenderer.invoke('clear-cache'); updateStatus('Cache cleared'); } 
+    catch (error) { updateStatus(`Failed to clear cache: ${error.message}`); }
   });
   if (viewLogsButton) viewLogsButton.addEventListener('click', async () => {
-    try {
-      await ipcRenderer.invoke('open-logs');
-      updateStatus('Opening logs...');
-    } catch (error) { updateStatus(`Failed to open logs: ${error.message}`); }
+    try { await ipcRenderer.invoke('open-logs'); updateStatus('Opening logs...'); } 
+    catch (error) { updateStatus(`Failed to open logs: ${error.message}`); }
   });
   if (viewLogViewerButton) viewLogViewerButton.addEventListener('click', async () => {
     await ipcRenderer.invoke('open-log-viewer');
