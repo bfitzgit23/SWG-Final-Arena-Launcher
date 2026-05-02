@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) – dual server status (game + patch)
+// main.js - SWG Returns Launcher (PreCU/Core3) – dual server status
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -27,8 +27,8 @@ const BASE_URL = 'http://15.204.254.253/tre/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 
 // --- Game login server (where the client connects to play) ---
-const SERVER_IP = '144.217.255.58';
-const SERVER_PORT = 44453;
+const GAME_SERVER_IP = '144.217.255.58';
+const GAME_SERVER_PORT = 44453;
 
 const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
 function log(message, level = 'INFO') {
@@ -248,7 +248,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg from settings - Preserves INI section format
+// Write options.cfg from settings - Preserves INI section format (unchanged)
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -388,7 +388,7 @@ ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
 });
 
 ipcMain.handle('get-server-info', async () => {
-  return { ip: SERVER_IP, port: SERVER_PORT };
+  return { ip: GAME_SERVER_IP, port: GAME_SERVER_PORT };
 });
 
 ipcMain.handle('test-exe', async (event, exePath) => {
@@ -591,52 +591,37 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- DUAL SERVER STATUS: check both game login server (TCP) and patch server (HTTP) ----------
-ipcMain.handle('server-status', async () => {
+// ---------- DUAL SERVER STATUS: separate handlers for game and patch servers ----------
+ipcMain.handle('game-server-status', async () => {
   const net = require('net');
-  const results = [];
-
-  // 1. Check game login server via TCP
-  const tcpStart = Date.now();
-  const tcpResult = await new Promise((resolve) => {
+  const start = Date.now();
+  return new Promise((resolve) => {
     const socket = new net.Socket();
     const timeout = setTimeout(() => {
       socket.destroy();
-      resolve({ online: false, ping: null, method: 'TCP (game server)', error: 'timeout' });
+      resolve({ online: false, ping: null, method: 'TCP' });
     }, 3000);
-    socket.connect(SERVER_PORT, SERVER_IP, () => {
+    socket.connect(GAME_SERVER_PORT, GAME_SERVER_IP, () => {
       clearTimeout(timeout);
-      const ping = Date.now() - tcpStart;
+      const ping = Date.now() - start;
       socket.destroy();
-      resolve({ online: true, ping, method: 'TCP (game server)' });
+      resolve({ online: true, ping, method: 'TCP' });
     });
-    socket.on('error', (err) => {
+    socket.on('error', () => {
       clearTimeout(timeout);
-      resolve({ online: false, ping: null, method: 'TCP (game server)', error: err.message });
+      resolve({ online: false, ping: null, method: 'TCP' });
     });
   });
-  results.push(tcpResult);
+});
 
-  // 2. Check patch server via HTTP
-  const httpStart = Date.now();
-  let httpResult = { online: false, ping: null, method: 'HTTP (patch server)' };
+ipcMain.handle('patch-server-status', async () => {
+  const start = Date.now();
   try {
-    await axios.get(`http://${BASE_URL.split('/')[2]}`, { timeout: 3000 });
-    httpResult.online = true;
-    httpResult.ping = Date.now() - httpStart;
+    await axios.get(`http://${BASE_URL.split('/')[2]}/`, { timeout: 3000 });
+    const ping = Date.now() - start;
+    return { online: true, ping, method: 'HTTP' };
   } catch (err) {
-    httpResult.error = err.message;
-  }
-  results.push(httpResult);
-
-  // If either succeeded, return the fastest online result
-  const onlineResults = results.filter(r => r.online);
-  if (onlineResults.length > 0) {
-    const best = onlineResults.reduce((a, b) => (a.ping < b.ping ? a : b));
-    return { online: true, ping: best.ping, method: best.method };
-  } else {
-    // Both failed
-    return { online: false, ping: null, method: 'none' };
+    return { online: false, ping: null, method: 'HTTP' };
   }
 });
 
@@ -661,7 +646,7 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download fallback, directory selection
+// File list, MD5, download fallback, directory selection (unchanged)
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
