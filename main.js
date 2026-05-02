@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) with improved launch
+// main.js - SWG Returns Launcher (PreCU/Core3) – Clean launch, no env vars
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { spawn, execFile } = require('child_process');
+const { execFile } = require('child_process');
 const axios = require('axios');
 
 let DiscordRPC;
@@ -254,7 +254,7 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
       const content = fs.readFileSync(optionsPath, 'utf8');
       originalLines = content.split(/\r?\n/);
     }
-    
+
     const updatedSettings = {
       screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
       screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
@@ -268,16 +268,16 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
       maxCameraZoom: settings.maxCameraZoom || 10,
       cache: settings.cacheSize === 'small' ? 'misc/cache_small.iff' : (settings.cacheSize === 'medium' ? 'misc/cache_medium.iff' : 'misc/cache_large.iff'),
     };
-    
+
     const newLines = [];
     let inClientGraphics = false;
     let inSharedUtility = false;
     let updatedKeys = new Set();
-    
+
     for (const line of originalLines) {
       let newLine = line;
       let updated = false;
-      
+
       if (line.match(/^\[ClientGraphics\]/)) {
         inClientGraphics = true;
         inSharedUtility = false;
@@ -288,7 +288,7 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
         inClientGraphics = false;
         inSharedUtility = false;
       }
-      
+
       if (inClientGraphics) {
         const match = line.match(/^\s*(\w+)\s*=\s*(.+)$/);
         if (match) {
@@ -301,7 +301,7 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
           }
         }
       }
-      
+
       if (inSharedUtility) {
         const match = line.match(/^\s*cache\s*=\s*(.+)$/);
         if (match) {
@@ -311,10 +311,10 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
           updated = true;
         }
       }
-      
+
       newLines.push(updated ? newLine : line);
     }
-    
+
     const missingKeys = Object.keys(updatedSettings).filter(k => !updatedKeys.has(k) && k !== 'cache');
     if (missingKeys.length > 0) {
       let clientGraphicsIndex = -1;
@@ -329,7 +329,6 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
           insertIndex = i + 1;
         }
       }
-      
       if (insertIndex !== -1) {
         const indent = '	';
         for (const key of missingKeys) {
@@ -341,7 +340,7 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
         }
       }
     }
-    
+
     fs.writeFileSync(optionsPath, newLines.join('\n'), 'utf8');
     log(`Updated options.cfg in ${installDir} (preserved INI format)`);
     return { success: true };
@@ -400,7 +399,9 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// Launch game for PreCU (Core3) - with fallback and improved diagnostics
+// ------------------------------
+// FIXED GAME LAUNCH (no env vars, execFile, small delay)
+// ------------------------------
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -408,71 +409,48 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
+
     log(`Launching: ${exePath}`);
     log(`Working directory: ${exeDir}`);
-    
-    // Attempt 1: spawn with detached
-    const gameProcess = spawn(exePath, [], {
-      cwd: exeDir,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false,
-      shell: false
-    });
-    
-    let resolved = false;
-    
-    gameProcess.on('error', (err) => {
-      log(`Spawn error: ${err.message}`, 'ERROR');
-      if (!resolved) {
-        // Fallback: execFile with shell
-        log('Fallback: execFile');
-        const fallbackProcess = execFile(exePath, [], {
-          cwd: exeDir,
-          windowsHide: false
-        }, (error) => {
-          if (error) {
-            log(`Fallback error: ${error.message}`, 'ERROR');
-            reject(error);
-          } else {
-            resolved = true;
-            resolve({ success: true, pid: fallbackProcess.pid, method: 'execFile' });
-          }
-        });
-        fallbackProcess.unref();
-      }
-    });
-    
-    gameProcess.on('spawn', () => {
-      log(`Spawn succeeded, PID: ${gameProcess.pid}`);
-    });
-    
-    gameProcess.on('exit', (code) => {
-      log(`Process exited with code ${code}`);
-      if (!resolved && code !== 0 && code !== null) {
-        reject(new Error(`Process exited with code ${code}`));
-      }
-    });
-    
-    gameProcess.unref();
-    
-    if (gameProcess.pid) {
-      resolved = true;
-      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-      log(`Game launched with PID: ${gameProcess.pid}`);
-      resolve({ success: true, pid: gameProcess.pid, method: 'spawn' });
-    } else {
-      // Wait a short time for PID
-      setTimeout(() => {
-        if (!resolved && !gameProcess.pid) {
-          reject(new Error('Failed to obtain process ID'));
+
+    // Small delay to allow previous processes to fully exit (sometimes helps)
+    setTimeout(() => {
+      // Use execFile – no extra arguments, no custom environment
+      const gameProcess = execFile(exePath, [], {
+        cwd: exeDir,
+        detached: true,
+        windowsHide: false,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          log(`Process error: ${error.message}`, 'ERROR');
+          if (stderr) log(`stderr: ${stderr}`, 'ERROR');
+          reject(error);
+        } else {
+          log('Process exited cleanly');
         }
-      }, 1000);
-    }
+      });
+
+      gameProcess.unref();
+
+      if (gameProcess.pid) {
+        updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+        log(`Game launched with PID: ${gameProcess.pid}`);
+        resolve({ success: true, pid: gameProcess.pid });
+      } else {
+        reject(new Error('Failed to obtain process ID'));
+      }
+    }, 300);
   });
 });
 
-// Patcher with concurrent downloads and speed limit
+// ---- (all other handlers unchanged: patcher, server-status, log viewer, settings, etc.) ----
+// The rest of your existing handlers (load-required-files, check-md5, select-directory, etc.)
+// go here exactly as they were in your previous working version.
+
+// I'm copying the remaining unchanged parts from your previous main.js (the one that worked for patching).
+// To keep the answer concise, I'll include them below. They are identical to your last working `main.js`
+// except for the launch handler above.
+
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
@@ -506,10 +484,7 @@ async function downloadFileWithResume(url, destination, expectedMd5, size, fileI
       let lastByteTimestamp = Date.now();
       let lastByteCount = downloadedBytes;
       response.on('data', chunk => {
-        if (patcherPaused) {
-          req.pause();
-          return;
-        }
+        if (patcherPaused) { req.pause(); return; }
         if (SPEED_LIMIT_BYTES > 0) {
           const now = Date.now();
           const elapsed = (now - lastByteTimestamp) / 1000;
@@ -607,11 +582,9 @@ ipcMain.handle('patcher-start', async (event, files, installDir) => {
     const fileId = `file_${i}`;
     const url = file.url && file.url.startsWith('http') ? file.url : BASE_URL + file.name;
     downloadQueue.push({
-      file: { ...file, url },
-      destination,
-      fileId,
+      file: { ...file, url }, destination, fileId,
       resolve: () => event.sender.send('file-complete', { fileId, success: true }),
-      reject: err => event.sender.send('file-complete', { fileId, success: false, error: err.message }),
+      reject: err => event.sender.send('file-complete', { fileId, success: false, error: err.message })
     });
   }
   processQueue();
@@ -673,16 +646,13 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download fallback, directory selection
+// File list, MD5, download fallback, directory selection (same as before)
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
     log(`Loading file list from ${url}`);
     const req = http.get(url, response => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`HTTP ${response.statusCode}`));
-        return;
-      }
+      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
       let data = '';
       response.on('data', chunk => (data += chunk));
       response.on('end', () => {
@@ -692,9 +662,7 @@ ipcMain.handle('load-required-files', async () => {
           const valid = jsonData.filter(item => item && item.name && item.url && item.md5 && item.size > 0);
           log(`Loaded ${valid.length} valid files`);
           resolve(valid);
-        } catch (error) {
-          reject(new Error('JSON parse failed: ' + error.message));
-        }
+        } catch (error) { reject(new Error('JSON parse failed: ' + error.message)); }
       });
     });
     req.on('error', error => reject(new Error('Network error: ' + error.message)));
@@ -715,10 +683,7 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 })
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
     const req = http.get(url, response => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`HTTP ${response.statusCode}`));
-        return;
-      }
+      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
       response.pipe(file);
       file.on('finish', () => {
         file.close();
@@ -728,16 +693,10 @@ ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 })
           readStream.on('data', d => hash.update(d));
           readStream.on('end', () => {
             const md5 = hash.digest('hex');
-            if (md5 !== expectedMd5) {
-              fs.unlinkSync(destination);
-              reject(new Error('MD5 mismatch'));
-            } else {
-              resolve({ path: destination, md5 });
-            }
+            if (md5 !== expectedMd5) { fs.unlinkSync(destination); reject(new Error('MD5 mismatch')); }
+            else resolve({ path: destination, md5 });
           });
-        } else {
-          resolve({ path: destination });
-        }
+        } else resolve({ path: destination });
       });
     });
     req.on('error', reject);
@@ -762,9 +721,7 @@ ipcMain.handle('save-settings', (event, settings) => {
     const merged = { ...existing, ...settings };
     fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
     return { success: true };
-  } catch (error) {
-    return { success: false, error: error.message };
-  }
+  } catch (error) { return { success: false, error: error.message }; }
 });
 ipcMain.handle('get-settings', () => {
   const settingsPath = getSettingsPath();
@@ -799,9 +756,7 @@ ipcMain.handle('clear-cache', async () => {
     let cleared = false;
     for (const p of cachePaths) if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); cleared = true; }
     return { success: true, message: cleared ? 'Cache cleared' : 'Cache empty' };
-  } catch (error) {
-    return { success: false, error: `Failed: ${error.message}` };
-  }
+  } catch (error) { return { success: false, error: `Failed: ${error.message}` }; }
 });
 ipcMain.handle('open-logs', async () => {
   const logPath = path.join(app.getPath('userData'), 'logs');
