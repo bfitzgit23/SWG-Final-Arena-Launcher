@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU) – using exec for launch
+// main.js - SWG Returns Launcher (PreCU) – preserves options.cfg sections
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -221,7 +221,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg – preserves existing options
+// ---------- FIXED: options.cfg writer that preserves sections and all content ----------
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -229,66 +229,105 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
     if (fs.existsSync(optionsPath)) {
       const content = fs.readFileSync(optionsPath, 'utf8');
       originalLines = content.split(/\r?\n/);
+    } else {
+      // If no file, create a minimal default
+      originalLines = [
+        '# options.cfg - SWG Returns Launcher',
+        '',
+        '[ClientGraphics]',
+        '	screenWidth=1920',
+        '	screenHeight=1080',
+        '',
+        '[SharedUtility]',
+        '	cache=misc/cache_large.iff'
+      ];
     }
-    const updatedSettings = {
-      screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
-      screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
-      fullscreen: settings.displayMode === 'fullscreen' ? 1 : 0,
-      borderlessWindow: settings.displayMode === 'borderless' ? 1 : 0,
-      windowed: settings.displayMode === 'windowed' ? 1 : 0,
-      useHardwareMouseCursor: settings.hardwareCursor ? 1 : 0,
-      skipIntro: settings.skipIntro ? 1 : 0,
-      textureBaking: settings.textureBaking ? 1 : 0,
-      dot3Terrain: settings.dot3Terrain ? 1 : 0,
-      maxCameraZoom: settings.maxCameraZoom || 10,
-      cache: settings.cacheSize === 'small' ? 'misc/cache_small.iff' : (settings.cacheSize === 'medium' ? 'misc/cache_medium.iff' : 'misc/cache_large.iff'),
+
+    // Map launcher settings to section:key
+    // All keys are placed in [ClientGraphics] except for cache (SharedUtility) and skipIntro (ClientGame)
+    const updates = {
+      ClientGraphics: {
+        screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
+        screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
+        borderlessWindow: settings.displayMode === 'borderless' ? 1 : 0,
+        windowed: settings.displayMode === 'windowed' ? 1 : 0,
+        // fullscreen is not a standard key; we use borderlessWindow and windowed. Leave fullscreen out.
+        useHardwareMouseCursor: settings.hardwareCursor ? 1 : 0,
+        textureBaking: settings.textureBaking ? 1 : 0,
+        dot3Terrain: settings.dot3Terrain ? 1 : 0,
+      },
+      ClientGame: {
+        skipIntro: settings.skipIntro ? 1 : 0,
+      },
+      SharedUtility: {
+        cache: settings.cacheSize === 'small' ? 'misc/cache_small.iff' : (settings.cacheSize === 'medium' ? 'misc/cache_medium.iff' : 'misc/cache_large.iff'),
+      }
     };
-    const newLines = [];
-    let inClientGraphics = false, inSharedUtility = false;
-    const updatedKeys = new Set();
-    for (const line of originalLines) {
-      let newLine = line, updated = false;
-      if (line.match(/^\[ClientGraphics\]/)) {
-        inClientGraphics = true;
-        inSharedUtility = false;
-      } else if (line.match(/^\[SharedUtility\]/)) {
-        inClientGraphics = false;
-        inSharedUtility = true;
-      } else if (line.match(/^\[/)) {
-        inClientGraphics = false;
-        inSharedUtility = false;
+
+    // Parse the file into sections
+    let sections = {};
+    let currentSection = null;
+    let currentLines = [];
+
+    for (let line of originalLines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        // Save previous section
+        if (currentSection) {
+          sections[currentSection] = currentLines;
+        }
+        currentSection = trimmed.slice(1, -1);
+        currentLines = [line]; // keep the section header
+      } else {
+        currentLines.push(line);
       }
-      if (inClientGraphics) {
+    }
+    if (currentSection) {
+      sections[currentSection] = currentLines;
+    }
+
+    // Apply updates
+    for (const [section, keys] of Object.entries(updates)) {
+      if (!sections[section]) {
+        // Create new section
+        sections[section] = [`[${section}]`];
+        // Add any missing keys (will be added later)
+      }
+      const sectionLines = sections[section];
+      // We'll process each key: if it exists, update its value; otherwise, add at end of section
+      const processedKeys = new Set();
+      for (let i = 0; i < sectionLines.length; i++) {
+        const line = sectionLines[i];
         const match = line.match(/^\s*(\w+)\s*=\s*(.+)$/);
-        if (match && updatedSettings.hasOwnProperty(match[1])) {
-          const indent = line.match(/^(\s*)/)[1];
-          newLine = `${indent}${match[1]}=${updatedSettings[match[1]]}`;
-          updatedKeys.add(match[1]);
-          updated = true;
-        }
-      }
-      if (inSharedUtility) {
-        const match = line.match(/^\s*cache\s*=\s*(.+)$/);
         if (match) {
-          const indent = line.match(/^(\s*)/)[1];
-          newLine = `${indent}cache=${updatedSettings.cache}`;
-          updatedKeys.add('cache');
-          updated = true;
+          const key = match[1];
+          if (keys.hasOwnProperty(key)) {
+            const indent = line.match(/^(\s*)/)[1] || '\t';
+            sectionLines[i] = `${indent}${key}=${keys[key]}`;
+            processedKeys.add(key);
+          }
         }
       }
-      newLines.push(updated ? newLine : line);
-    }
-    const missingKeys = Object.keys(updatedSettings).filter(k => !updatedKeys.has(k) && k !== 'cache');
-    if (missingKeys.length > 0) {
-      let insertIndex = newLines.findIndex(l => l.match(/^\[ClientGraphics\]/)) + 1;
-      const indent = '\t';
-      for (const key of missingKeys) {
-        newLines.splice(insertIndex, 0, `${indent}${key}=${updatedSettings[key]}`);
-        insertIndex++;
+      // Add missing keys
+      for (const [key, value] of Object.entries(keys)) {
+        if (!processedKeys.has(key)) {
+          // Add at the end of the section, with a tab indent
+          sectionLines.push(`\t${key}=${value}`);
+        }
       }
     }
+
+    // Rebuild the file
+    const newLines = [];
+    // Preserve order of sections as they originally appeared, plus any new ones appended
+    const orderedSections = [...Object.keys(sections)];
+    for (const section of orderedSections) {
+      newLines.push(...sections[section]);
+      newLines.push(''); // blank line after section (optional)
+    }
+    // Ensure trailing newline
     fs.writeFileSync(optionsPath, newLines.join('\n'), 'utf8');
-    log(`Updated options.cfg in ${installDir}`);
+    log(`Updated options.cfg in ${installDir} preserving sections`);
     return { success: true };
   } catch (err) {
     log(`Error writing options.cfg: ${err.message}`, 'ERROR');
@@ -337,7 +376,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// ---------- LAUNCH USING exec (shell) – mimics command line ----------
+// ---------- LAUNCH: cmd /c start (exactly like double‑click) ----------
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -345,24 +384,19 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
-    // Use double quotes to handle paths with spaces
-    const command = `"${exePath}"`;
-    log(`Launching via exec: ${command}`);
-    log(`Working directory: ${exeDir}`);
-
-    const child = exec(command, { cwd: exeDir, windowsHide: false }, (error, stdout, stderr) => {
+    const command = `cmd /c start "" "${exePath}"`;
+    log(`Launch command: ${command}`);
+    const child = exec(command, { cwd: exeDir }, (error, stdout, stderr) => {
       if (error) {
-        log(`Exec error: ${error.message}`, 'ERROR');
+        log(`Start command error: ${error.message}`, 'ERROR');
         reject(error);
       } else {
-        log(`Exec completed (game closed). stdout: ${stdout}, stderr: ${stderr}`);
+        log(`Start command succeeded (game launched separately)`);
+        resolve({ success: true, method: 'cmd_start' });
       }
     });
-
     child.unref();
     updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-    log(`Launch command sent (no PID tracking)`);
-    resolve({ success: true, pid: null, method: 'exec' });
   });
 });
 
