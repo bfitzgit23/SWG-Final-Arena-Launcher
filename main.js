@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (PreCU) – clean, no window references
+// main.js - SWG Returns Launcher (PreCU) – final working version
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
 const axios = require('axios');
 
 let DiscordRPC;
@@ -92,15 +92,11 @@ ipcMain.handle('check-for-updates-manual', async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
     if (!result || !result.updateInfo) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-not-available');
-      }
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-not-available');
     }
   } catch (err) {
     log(`Manual update check error: ${err.message}`, 'ERROR');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-error', err.message);
-    }
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-error', err.message);
   }
 });
 
@@ -177,7 +173,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
-// Window controls IPC
+// IPC: Window controls
 ipcMain.handle('window:minimize', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize(); });
 ipcMain.handle('window:maximizeToggle', () => {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -221,7 +217,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg – preserves INI format (simplified for brevity, but must be complete)
+// Write options.cfg – preserves INI format
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -327,28 +323,46 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
+// ---------- CORRECTED GAME LAUNCH (spawn, no arguments) ----------
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
-    if (!fs.existsSync(exePath)) return reject(new Error(`Executable not found: ${exePath}`));
+    if (!fs.existsSync(exePath)) {
+      reject(new Error(`Executable not found: ${exePath}`));
+      return;
+    }
     const exeDir = path.dirname(exePath);
     log(`Launching: ${exePath}`);
-    setTimeout(() => {
-      const gameProcess = execFile(exePath, [], { cwd: exeDir, detached: true, windowsHide: false }, (error) => {
-        if (error) reject(error);
-        else log('Process exited cleanly');
-      });
-      gameProcess.unref();
-      if (gameProcess.pid) {
-        updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-        resolve({ success: true, pid: gameProcess.pid });
-      } else {
-        reject(new Error('Failed to obtain PID'));
-      }
-    }, 300);
+    log(`Working directory: ${exeDir}`);
+
+    const gameProcess = spawn(exePath, [], {
+      cwd: exeDir,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false
+    });
+
+    gameProcess.on('error', (err) => {
+      log(`Spawn error: ${err.message}`, 'ERROR');
+      reject(err);
+    });
+
+    gameProcess.on('exit', (code) => {
+      log(`Game process exited with code ${code}`);
+    });
+
+    gameProcess.unref();
+
+    if (gameProcess.pid) {
+      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+      log(`Game launched with PID: ${gameProcess.pid}`);
+      resolve({ success: true, pid: gameProcess.pid });
+    } else {
+      reject(new Error('Failed to obtain process ID'));
+    }
   });
 });
 
-// ---------- Patcher ----------
+// ---------- Patcher (multithread, resume, speed limit) ----------
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
@@ -480,7 +494,7 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// Server status
+// Server status (patch server only)
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
   try {
@@ -512,7 +526,7 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download, directory selection
+// File list, MD5, download fallback, directory selection
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
