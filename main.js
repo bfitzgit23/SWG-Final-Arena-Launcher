@@ -24,7 +24,7 @@ let rpc;
 
 const BASE_URL = 'http://15.204.254.253/tre/';
 const VERSION_URL = `${BASE_URL}version.txt`;
-const SERVER_IP = '15.204.254.253';
+const SERVER_IP = '144.217.255.58';
 const SERVER_PORT = 44453;
 
 const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
