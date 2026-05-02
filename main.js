@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (PreCU) – original working launch
+// main.js - SWG Returns Launcher (PreCU) – using shell.openPath for perfect double-click emulation
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn } = require('child_process'); // only used for patcher, not for launch
 const axios = require('axios');
 
 let DiscordRPC;
@@ -221,7 +221,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg – preserves INI format
+// Write options.cfg – preserves INI format (same as before)
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -337,46 +337,24 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// ---------- ORIGINAL WORKING LAUNCH (spawn with no arguments) ----------
+// ---------- LAUNCH USING shell.openPath (identical to double-click) ----------
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(exePath)) {
-      reject(new Error(`Executable not found: ${exePath}`));
-      return;
-    }
-    const exeDir = path.dirname(exePath);
-    log(`Launching: ${exePath}`);
-    log(`Working directory: ${exeDir}`);
-
-    const gameProcess = spawn(exePath, [], {
-      cwd: exeDir,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
-    });
-
-    gameProcess.on('error', (err) => {
-      log(`Spawn error: ${err.message}`, 'ERROR');
-      reject(err);
-    });
-
-    gameProcess.on('exit', (code) => {
-      log(`Game process exited with code ${code}`);
-    });
-
-    gameProcess.unref();
-
-    if (gameProcess.pid) {
-      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-      log(`Game launched with PID: ${gameProcess.pid}`);
-      resolve({ success: true, pid: gameProcess.pid });
-    } else {
-      reject(new Error('Failed to obtain process ID'));
-    }
-  });
+  if (!fs.existsSync(exePath)) {
+    throw new Error(`Executable not found: ${exePath}`);
+  }
+  log(`Launching via shell.openPath: ${exePath}`);
+  try {
+    await shell.openPath(exePath);
+    updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+    log(`shell.openPath succeeded (no PID tracking)`);
+    return { success: true, pid: null, method: 'shell' };
+  } catch (err) {
+    log(`shell.openPath error: ${err.message}`, 'ERROR');
+    throw err;
+  }
 });
 
-// ---------- Patcher (multithread, resume, speed limit) ----------
+// ---------- PATCHER (unchanged) ----------
 let activeDownloads = new Map();
 let downloadQueue = [];
 let isDownloading = false;
