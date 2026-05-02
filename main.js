@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) – real server status via TCP, version fallback
+// main.js - SWG Returns Launcher (PreCU/Core3) – smart server status
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -241,7 +241,6 @@ ipcMain.handle('check-game-version', async () => {
     return { remoteVersion, localVersion, needsUpdate: remoteVersion !== localVersion };
   } catch (error) {
     log(`Version check failed: ${error.message}`, 'ERROR');
-    // Return fallback values instead of an error object
     return { remoteVersion: 'unknown', localVersion: 'none', needsUpdate: false };
   }
 });
@@ -592,27 +591,46 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- REAL SERVER STATUS via TCP connection to login port ----------
+// ---------- SMART SERVER STATUS: try TCP, fallback to HTTP ping on patch server ----------
 ipcMain.handle('server-status', async () => {
   const net = require('net');
-  const start = Date.now();
-  return new Promise((resolve) => {
+  // First, try to connect to the game login server
+  const tcpStart = Date.now();
+  const tcpResult = await new Promise((resolve) => {
     const socket = new net.Socket();
     const timeout = setTimeout(() => {
       socket.destroy();
-      resolve({ online: false, ping: null, method: 'tcp' });
-    }, 5000); // 5 second timeout
+      resolve({ online: false, ping: null, method: 'tcp', error: 'timeout' });
+    }, 4000);
     socket.connect(SERVER_PORT, SERVER_IP, () => {
       clearTimeout(timeout);
-      const ping = Date.now() - start;
+      const ping = Date.now() - tcpStart;
       socket.destroy();
       resolve({ online: true, ping, method: 'tcp' });
     });
-    socket.on('error', () => {
+    socket.on('error', (err) => {
       clearTimeout(timeout);
-      resolve({ online: false, ping: null, method: 'tcp' });
+      resolve({ online: false, ping: null, method: 'tcp', error: err.message });
     });
   });
+
+  if (tcpResult.online) {
+    // Game login server responded
+    return { online: true, ping: tcpResult.ping, method: 'tcp' };
+  }
+
+  // If TCP fails, try to ping the patch server's web server (which we know is online)
+  // This gives a "server online" indication even if the login port is blocked.
+  log(`TCP ping to login server failed: ${tcpResult.error} – falling back to patch server ping`, 'WARN');
+  const httpStart = Date.now();
+  try {
+    await axios.get(`http://${BASE_URL.split('/')[2]}/`, { timeout: 3000 });
+    const ping = Date.now() - httpStart;
+    return { online: true, ping, method: 'http (patch server)' };
+  } catch (err) {
+    // Both methods failed – server is probably down
+    return { online: false, ping: null, method: 'none' };
+  }
 });
 
 // Log viewer
