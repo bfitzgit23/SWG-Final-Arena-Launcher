@@ -1,535 +1,641 @@
-// renderer.js - SWG Returns Launcher (single server status)
-const { ipcRenderer } = require('electron');
-const fs = require('fs');
+// main.js - SWG Returns Launcher (PreCU) – clean, no window references
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
-const packageJson = require('./package.json');
+const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
+const { execFile } = require('child_process');
+const axios = require('axios');
 
-function getElement(id) {
-  const el = document.getElementById(id);
-  if (!el) console.error(`[Renderer] Element not found: #${id}`);
-  return el;
+let DiscordRPC;
+try {
+  DiscordRPC = require('discord-rpc');
+} catch (e) {
+  console.warn('Discord RPC not available:', e.message);
+  DiscordRPC = null;
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  console.log('[Renderer] DOM ready, initializing...');
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('force-device-scale-factor', '1');
 
-  // --- DOM elements ---
-  const closeButton = getElement('close-button');
-  const minimizeButton = getElement('minimize-button');
-  const maximizeButton = getElement('maximize-button');
-  const playButton = getElement('play-button');
-  const quickScanButton = getElement('quick-scan');
-  const fullScanButton = getElement('full-scan');
-  const repairButton = getElement('repair-button');
-  const installLocationButton = getElement('install-location');
-  const settingsButton = getElement('settings-button');
-  const pauseButton = getElement('pause-button');
-  const clearCacheButton = getElement('clear-cache');
-  const viewLogsButton = getElement('view-logs');
-  const donateButton = getElement('donate-button');
-  const currentDirectoryElement = getElement('current-directory');
-  const totalProgressBar = getElement('total-progress');
-  const fileProgressBar = getElement('file-progress');
-  const totalStatusElement = getElement('total-status');
-  const statusElement = getElement('status');
-  const downloadSpeedElement = getElement('download-speed');
+let mainWindow;
+let rpc;
 
-  const serverStatusSpan = getElement('server-status');
-  const refreshServerBtn = getElement('refresh-server');
-  const gameVersionSpan = getElement('game-version');
-  const checkUpdatesBtn = getElement('check-updates');
-  const exeStatusSpan = getElement('exe-status');
-  const testExeButton = getElement('test-exe-button');
-  const viewLogViewerButton = getElement('view-log-viewer');
+const BASE_URL = 'http://15.204.254.253/tre/';
+const VERSION_URL = `${BASE_URL}version.txt`;
+const GAME_SERVER_IP = '144.217.255.58';
+const GAME_SERVER_PORT = 44453;
 
-  const modalOverlay = getElement('modal-overlay');
-  const settingsModal = getElement('settings-modal');
-  const settingsCloseButton = getElement('settings-close');
-  const saveSettingsButton = getElement('save-settings');
+const logFile = path.join(app.getPath('userData'), 'logs', 'launcher.log');
+function log(message, level = 'INFO') {
+  const timestamp = new Date().toISOString();
+  const logLine = `[${timestamp}] [${level}] ${message}\n`;
+  console.log(logLine.trim());
+  try { fs.appendFileSync(logFile, logLine, { flag: 'a' }); } catch (_) {}
+}
 
-  const launcherVersionSpan = getElement('launcher-version');
-  const checkUpdatesNowButton = getElement('check-updates-now');
+function initDiscordRPC() {
+  if (!DiscordRPC) return;
+  const clientId = '1490822251304714323';
+  DiscordRPC.register(clientId);
+  rpc = new DiscordRPC.Client({ transport: 'ipc' });
+  rpc.on('ready', () => {
+    log('Discord RPC ready');
+    rpc.setActivity({
+      details: 'Managing SWG Installation',
+      state: 'Launcher ready',
+      startTimestamp: new Date(),
+      largeImageKey: 'swg_logo',
+      largeImageText: 'Star Wars Galaxies',
+      instance: false,
+    });
+  });
+  rpc.login({ clientId }).catch(err => log(`Discord RPC error: ${err.message}`, 'ERROR'));
+}
+function updateDiscordStatus(status, details = '') {
+  if (!rpc) return;
+  let state = '';
+  if (status === 'playing') state = 'In game';
+  else if (status === 'downloading') state = 'Downloading files';
+  else state = 'Launcher ready';
+  rpc.setActivity({
+    details: details || (status === 'playing' ? 'Playing SWG' : 'Managing SWG Installation'),
+    state: state,
+    startTimestamp: new Date(),
+    largeImageKey: 'swg_logo',
+    largeImageText: 'Star Wars Galaxies',
+    instance: false,
+  }).catch(err => log(`Discord RPC setActivity error: ${err.message}`, 'ERROR'));
+}
 
-  // Game settings
-  const resolutionSelect = getElement('resolution-select');
-  const displayModeSelect = getElement('display-mode-select');
-  const fpsLimitSelect = getElement('fps-limit-select');
-  const shaderQualitySelect = getElement('shader-quality-select');
-  const cacheSizeSelect = getElement('cache-size-select');
-  const soundCheckbox = getElement('sound-checkbox');
-  const hardwareCursorCheckbox = getElement('hardware-cursor-checkbox');
-  const skipIntroCheckbox = getElement('skip-intro-checkbox');
-  const textureBakingCheckbox = getElement('texture-baking-checkbox');
-  const dot3TerrainCheckbox = getElement('dot3-terrain-checkbox');
-  const rendererSelect = getElement('renderer-select');
-  const memorySlider = getElement('memory-slider');
-  const memoryValue = getElement('memory-value');
-  const cameraZoomSlider = getElement('camera-zoom-slider');
-  const cameraZoomValue = getElement('camera-zoom-value');
-  const allowMultipleInstancesCheckbox = getElement('allow-multiple-instances-checkbox');
-  const concurrentDownloadsSelect = getElement('concurrent-downloads-select');
-  const speedLimitInput = getElement('speed-limit-input');
-  const additionalArgsInput = getElement('additional-args-input');
-  const safeModeCheckbox = getElement('safe-mode-checkbox');
-  const shareUsageCheckbox = getElement('share-usage-checkbox');
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on('error', (err) => log(`Auto-updater error: ${err.message}`, 'WARN'));
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch(err => log(`Auto-updater check failed: ${err.message}`, 'WARN'));
+  }, 5000);
+}
+autoUpdater.on('update-available', () => mainWindow && mainWindow.webContents.send('update-available'));
+autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('update-downloaded'));
+autoUpdater.on('update-not-available', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-not-available');
+});
+autoUpdater.on('error', (err) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-error', err.message);
+});
+ipcMain.handle('restart-and-update', () => autoUpdater.quitAndInstall());
 
-  // Legacy hidden elements
-  const scanModeSelect = getElement('scan-mode-select');
-  const autoLaunchCheckbox = getElement('auto-launch-checkbox');
-  const autoUpdateCheckbox = getElement('auto-update-checkbox');
-  const minimizeToTrayCheckbox = getElement('minimize-to-tray-checkbox');
-  const timeoutInput = getElement('timeout-input');
-  const zoomSlider = getElement('zoom-slider');
-  const zoomValue = getElement('zoom-value');
-
-  let isScanning = false;
-  let isPaused = false;
-  let installDir = null;
-  let lastDownloadUpdate = Date.now();
-  let lastDownloadBytes = 0;
-  let completedFiles = 0;
-
-  if (launcherVersionSpan) {
-    launcherVersionSpan.textContent = packageJson.version || 'v0.1.17';
-  }
-
-  function updateStatus(text) {
-    if (statusElement) statusElement.textContent = text;
-    console.log(`[Status] ${text}`);
-  }
-
-  function updateProgress(current, total, type = 'total') {
-    if (!total || total <= 0) return;
-    const percentage = (current / total) * 100;
-    if (type === 'total' && totalProgressBar && totalStatusElement) {
-      totalProgressBar.style.width = `${percentage}%`;
-      totalStatusElement.textContent = `${current}/${total} files`;
-    } else if (type !== 'total' && fileProgressBar) {
-      fileProgressBar.style.width = `${percentage}%`;
+ipcMain.handle('check-for-updates-manual', async () => {
+  log('Manual update check requested');
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result || !result.updateInfo) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-not-available');
+      }
+    }
+  } catch (err) {
+    log(`Manual update check error: ${err.message}`, 'ERROR');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-error', err.message);
     }
   }
+});
 
-  function updateDownloadSpeed(bytesSoFar) {
-    if (!downloadSpeedElement) return;
-    const now = Date.now();
-    const timeDiff = (now - lastDownloadUpdate) / 1000;
-    if (timeDiff >= 1) {
-      const bytesDiff = bytesSoFar - lastDownloadBytes;
-      const speed = bytesDiff / timeDiff;
-      let speedText;
-      if (speed >= 1048576) speedText = `${(speed / 1048576).toFixed(2)} MB/s`;
-      else if (speed >= 1024) speedText = `${(speed / 1024).toFixed(2)} KB/s`;
-      else speedText = `${speed.toFixed(0)} B/s`;
-      downloadSpeedElement.textContent = `Download speed: ${speedText}`;
-      lastDownloadUpdate = now;
-      lastDownloadBytes = bytesSoFar;
-    }
+function detectInstallDir() {
+  const commonPaths = [
+    'C:\\Program Files\\SWGEmu', 'C:\\SWGEmu', 'D:\\SWGEmu',
+    'C:\\Program Files (x86)\\SWGEmu', process.env.ProgramFiles + '\\SWGEmu',
+    process.env['ProgramFiles(x86)'] + '\\SWGEmu', app.getPath('documents') + '\\SWGEmu',
+    app.getPath('home') + '\\SWGEmu',
+  ];
+  for (const p of commonPaths) {
+    if (fs.existsSync(p) && fs.existsSync(path.join(p, 'SWGEmu.exe'))) return p;
   }
+  return null;
+}
 
-  async function refreshMaximizeIcon() {
+function toggleFullscreen(win) {
+  if (!win || win.isDestroyed()) return;
+  win.setFullScreen(!win.isFullScreen());
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280, height: 720, useContentSize: true, frame: false, transparent: true,
+    resizable: true, minimizable: true, maximizable: true, fullscreenable: true,
+    backgroundColor: '#00000000', hasShadow: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    show: false,
+  });
+  mainWindow.setMinimumSize(1024, 600);
+  mainWindow.loadFile('index.html');
+
+  mainWindow.webContents.on('did-finish-load', async () => {
     try {
-      const isMax = await ipcRenderer.invoke('window:isMaximized');
-      if (maximizeButton) maximizeButton.textContent = isMax ? '❐' : '▢';
+      const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+      if (fs.existsSync(settingsPath)) {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        const zoomLevel = (settings.zoom || 100) / 100;
+        await mainWindow.webContents.setZoomFactor(zoomLevel);
+      }
+    } catch (_) {}
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') {
+      event.preventDefault();
+      toggleFullscreen(mainWindow);
+    }
+    if (input.control && (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0')) {
+      event.preventDefault();
+    }
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    const targetWidth = Math.min(width, 1280);
+    const targetHeight = Math.min(height, 720);
+    mainWindow.setContentSize(targetWidth, targetHeight);
+    mainWindow.center();
+    mainWindow.show();
+    log('Main window shown');
+  });
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  initDiscordRPC();
+  setupAutoUpdater();
+  const logDir = path.join(app.getPath('userData'), 'logs');
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+  log('Launcher started');
+});
+
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// Window controls IPC
+ipcMain.handle('window:minimize', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize(); });
+ipcMain.handle('window:maximizeToggle', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
+});
+ipcMain.handle('window:close', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close(); });
+ipcMain.handle('window:toggleFullscreen', () => toggleFullscreen(mainWindow));
+ipcMain.handle('window:isMaximized', () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false);
+ipcMain.handle('window:isFullscreen', () => mainWindow && !mainWindow.isDestroyed() ? mainWindow.isFullScreen() : false);
+
+ipcMain.handle('set-zoom', async (event, percent) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const factor = percent / 100;
+    await mainWindow.webContents.setZoomFactor(factor);
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+        settings.zoom = percent;
+        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      } catch (_) {}
+    }
+  }
+});
+
+// Game version checker
+ipcMain.handle('check-game-version', async () => {
+  try {
+    const response = await axios.get(VERSION_URL, { timeout: 5000 });
+    const remoteVersion = response.data.trim();
+    const versionFile = path.join(app.getPath('userData'), 'game_version.txt');
+    let localVersion = '';
+    if (fs.existsSync(versionFile)) localVersion = fs.readFileSync(versionFile, 'utf8').trim();
+    return { remoteVersion, localVersion, needsUpdate: remoteVersion !== localVersion };
+  } catch (error) {
+    log(`Version check failed: ${error.message}`, 'ERROR');
+    return { remoteVersion: 'unknown', localVersion: 'none', needsUpdate: false };
+  }
+});
+ipcMain.handle('save-game-version', (event, version) => {
+  fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
+});
+
+// Write options.cfg – preserves INI format (simplified for brevity, but must be complete)
+ipcMain.handle('write-game-options', async (event, installDir, settings) => {
+  const optionsPath = path.join(installDir, 'options.cfg');
+  try {
+    let originalLines = [];
+    if (fs.existsSync(optionsPath)) {
+      const content = fs.readFileSync(optionsPath, 'utf8');
+      originalLines = content.split(/\r?\n/);
+    }
+    const updatedSettings = {
+      screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
+      screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
+      fullscreen: settings.displayMode === 'fullscreen' ? 1 : 0,
+      borderlessWindow: settings.displayMode === 'borderless' ? 1 : 0,
+      windowed: settings.displayMode === 'windowed' ? 1 : 0,
+      useHardwareMouseCursor: settings.hardwareCursor ? 1 : 0,
+      skipIntro: settings.skipIntro ? 1 : 0,
+      textureBaking: settings.textureBaking ? 1 : 0,
+      dot3Terrain: settings.dot3Terrain ? 1 : 0,
+      maxCameraZoom: settings.maxCameraZoom || 10,
+      cache: settings.cacheSize === 'small' ? 'misc/cache_small.iff' : (settings.cacheSize === 'medium' ? 'misc/cache_medium.iff' : 'misc/cache_large.iff'),
+    };
+    const newLines = [];
+    let inClientGraphics = false, inSharedUtility = false;
+    const updatedKeys = new Set();
+    for (const line of originalLines) {
+      let newLine = line, updated = false;
+      if (line.match(/^\[ClientGraphics\]/)) { inClientGraphics = true; inSharedUtility = false; }
+      else if (line.match(/^\[SharedUtility\]/)) { inClientGraphics = false; inSharedUtility = true; }
+      else if (line.match(/^\[/)) { inClientGraphics = false; inSharedUtility = false; }
+      if (inClientGraphics) {
+        const match = line.match(/^\s*(\w+)\s*=\s*(.+)$/);
+        if (match && updatedSettings.hasOwnProperty(match[1])) {
+          const indent = line.match(/^(\s*)/)[1];
+          newLine = `${indent}${match[1]}=${updatedSettings[match[1]]}`;
+          updatedKeys.add(match[1]);
+          updated = true;
+        }
+      }
+      if (inSharedUtility) {
+        const match = line.match(/^\s*cache\s*=\s*(.+)$/);
+        if (match) {
+          const indent = line.match(/^(\s*)/)[1];
+          newLine = `${indent}cache=${updatedSettings.cache}`;
+          updatedKeys.add('cache');
+          updated = true;
+        }
+      }
+      newLines.push(updated ? newLine : line);
+    }
+    const missingKeys = Object.keys(updatedSettings).filter(k => !updatedKeys.has(k) && k !== 'cache');
+    if (missingKeys.length > 0) {
+      let insertIndex = newLines.findIndex(l => l.match(/^\[ClientGraphics\]/)) + 1;
+      const indent = '\t';
+      for (const key of missingKeys) {
+        newLines.splice(insertIndex, 0, `${indent}${key}=${updatedSettings[key]}`);
+        insertIndex++;
+      }
+    }
+    fs.writeFileSync(optionsPath, newLines.join('\n'), 'utf8');
+    log(`Updated options.cfg in ${installDir}`);
+    return { success: true };
+  } catch (err) {
+    log(`Error writing options.cfg: ${err.message}`, 'ERROR');
+    return { success: false, error: err.message };
+  }
+});
+
+// FPS patching
+ipcMain.handle('patch-game-fps', async (event, exePath, fps) => {
+  return new Promise(resolve => {
+    if (!fs.existsSync(exePath)) return resolve({ success: false, error: 'Executable not found' });
+    try {
+      const fd = fs.openSync(exePath, 'r+');
+      const buf = Buffer.alloc(7);
+      const bytesRead = fs.readSync(fd, buf, 0, 7, 0x1153);
+      if (bytesRead === 7 && buf.readUInt8(0) === 0xc7 && buf.readUInt8(1) === 0x45 && buf.readUInt8(2) === 0x94) {
+        const floatBuf = Buffer.alloc(4);
+        floatBuf.writeFloatLE(fps);
+        fs.writeSync(fd, floatBuf, 0, 4, 0x1156);
+        fs.closeSync(fd);
+        log(`Patched SWGEmu.exe FPS to ${fps}`);
+        resolve({ success: true });
+      } else {
+        fs.closeSync(fd);
+        resolve({ success: false, error: 'Signature mismatch' });
+      }
+    } catch (err) {
+      resolve({ success: false, error: err.message });
+    }
+  });
+});
+
+ipcMain.handle('get-server-info', async () => ({ ip: GAME_SERVER_IP, port: GAME_SERVER_PORT }));
+
+ipcMain.handle('test-exe', async (event, exePath) => {
+  try {
+    if (!fs.existsSync(exePath)) return { valid: false, error: 'File does not exist' };
+    const ext = path.extname(exePath).toLowerCase();
+    if (ext !== '.exe') return { valid: false, error: 'Not an .exe file' };
+    return { valid: true, version: 'unknown' };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+});
+
+ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(exePath)) return reject(new Error(`Executable not found: ${exePath}`));
+    const exeDir = path.dirname(exePath);
+    log(`Launching: ${exePath}`);
+    setTimeout(() => {
+      const gameProcess = execFile(exePath, [], { cwd: exeDir, detached: true, windowsHide: false }, (error) => {
+        if (error) reject(error);
+        else log('Process exited cleanly');
+      });
+      gameProcess.unref();
+      if (gameProcess.pid) {
+        updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+        resolve({ success: true, pid: gameProcess.pid });
+      } else {
+        reject(new Error('Failed to obtain PID'));
+      }
+    }, 300);
+  });
+});
+
+// ---------- Patcher ----------
+let activeDownloads = new Map();
+let downloadQueue = [];
+let isDownloading = false;
+let patcherPaused = false;
+let MAX_CONCURRENT = 4;
+let SPEED_LIMIT_BYTES = 0;
+const MAX_RETRIES = 3;
+const DOWNLOAD_TIMEOUT = 120000;
+
+async function downloadFileWithResume(url, destination, expectedMd5, size, fileId, retryCount = 0) {
+  return new Promise((resolve, reject) => {
+    const dir = path.dirname(destination);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    let existingSize = 0;
+    if (fs.existsSync(destination)) existingSize = fs.statSync(destination).size;
+    const requestOptions = { headers: {} };
+    if (existingSize > 0) requestOptions.headers.Range = `bytes=${existingSize}-`;
+    const req = http.get(url, requestOptions, response => {
+      if (response.statusCode === 200 && existingSize > 0) fs.writeFileSync(destination, '');
+      if (response.statusCode !== 200 && response.statusCode !== 206) return reject(new Error(`HTTP ${response.statusCode}`));
+      const fileStream = fs.createWriteStream(destination, { flags: 'a' });
+      activeDownloads.set(fileId, { req, fileStream });
+      let downloadedBytes = existingSize;
+      const totalBytes = parseInt(response.headers['content-range']?.split('/').pop() || response.headers['content-length'], 10) || size;
+      let lastByteTimestamp = Date.now();
+      let lastByteCount = downloadedBytes;
+      response.on('data', chunk => {
+        if (patcherPaused) { req.pause(); return; }
+        if (SPEED_LIMIT_BYTES > 0) {
+          const now = Date.now();
+          const elapsed = (now - lastByteTimestamp) / 1000;
+          const currentSpeed = (downloadedBytes - lastByteCount) / elapsed;
+          if (currentSpeed > SPEED_LIMIT_BYTES) {
+            req.pause();
+            setTimeout(() => req.resume(), Math.ceil(((downloadedBytes - lastByteCount) / SPEED_LIMIT_BYTES) * 100));
+          }
+          lastByteTimestamp = now;
+          lastByteCount = downloadedBytes;
+        }
+        downloadedBytes += chunk.length;
+        fileStream.write(chunk);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('file-progress', { fileId, downloaded: downloadedBytes, total: totalBytes });
+        }
+      });
+      response.on('end', () => {
+        fileStream.end();
+        activeDownloads.delete(fileId);
+        if (expectedMd5) {
+          const hash = crypto.createHash('md5');
+          const readStream = fs.createReadStream(destination);
+          readStream.on('data', d => hash.update(d));
+          readStream.on('end', () => {
+            const md5 = hash.digest('hex');
+            if (md5 !== expectedMd5) {
+              fs.unlinkSync(destination);
+              reject(new Error('MD5 mismatch'));
+            } else resolve({ path: destination, md5 });
+          });
+          readStream.on('error', reject);
+        } else resolve({ path: destination });
+        processQueue();
+      });
+      response.on('error', reject);
+    });
+    req.on('error', err => {
+      if (retryCount < MAX_RETRIES) {
+        log(`Download failed for ${fileId}, retrying...`, 'WARN');
+        setTimeout(() => downloadFileWithResume(url, destination, expectedMd5, size, fileId, retryCount + 1).then(resolve).catch(reject), 2000);
+      } else reject(err);
+    });
+    req.setTimeout(DOWNLOAD_TIMEOUT, () => {
+      req.destroy();
+      if (retryCount < MAX_RETRIES) {
+        setTimeout(() => downloadFileWithResume(url, destination, expectedMd5, size, fileId, retryCount + 1).then(resolve).catch(reject), 2000);
+      } else reject(new Error(`Timeout`));
+    });
+  });
+}
+
+async function processQueue() {
+  if (patcherPaused || isDownloading) return;
+  while (activeDownloads.size < MAX_CONCURRENT && downloadQueue.length > 0) {
+    const { file, destination, fileId, resolve, reject } = downloadQueue.shift();
+    isDownloading = true;
+    downloadFileWithResume(file.url, destination, file.md5, file.size, fileId, 0)
+      .then(resolve).catch(reject)
+      .finally(() => { isDownloading = false; processQueue(); });
+  }
+}
+
+ipcMain.handle('patcher-start', async (event, files, installDir) => {
+  const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+      MAX_CONCURRENT = settings.concurrentDownloads || 4;
+      const limitMB = settings.speedLimitMBps || 0;
+      SPEED_LIMIT_BYTES = limitMB * 1024 * 1024;
     } catch (_) {}
   }
-  if (closeButton) closeButton.addEventListener('click', () => ipcRenderer.invoke('window:close'));
-  if (minimizeButton) minimizeButton.addEventListener('click', () => ipcRenderer.invoke('window:minimize'));
-  if (maximizeButton) maximizeButton.addEventListener('click', async () => {
-    await ipcRenderer.invoke('window:maximizeToggle');
-    await refreshMaximizeIcon();
+  downloadQueue = [];
+  activeDownloads.clear();
+  patcherPaused = false;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const destination = path.join(installDir, file.name);
+    const fileId = `file_${i}`;
+    const url = file.url && file.url.startsWith('http') ? file.url : BASE_URL + file.name;
+    downloadQueue.push({
+      file: { ...file, url }, destination, fileId,
+      resolve: () => event.sender.send('file-complete', { fileId, success: true }),
+      reject: err => event.sender.send('file-complete', { fileId, success: false, error: err.message })
+    });
+  }
+  processQueue();
+  return { started: true, total: files.length };
+});
+
+ipcMain.handle('patcher-pause', () => {
+  patcherPaused = true;
+  for (let [id, { req }] of activeDownloads) req.pause();
+  log('Patcher paused');
+});
+ipcMain.handle('patcher-resume', () => {
+  patcherPaused = false;
+  for (let [id, { req }] of activeDownloads) req.resume();
+  processQueue();
+  log('Patcher resumed');
+});
+
+// Server status
+ipcMain.handle('server-status', async () => {
+  const start = Date.now();
+  try {
+    await axios.get(`http://${BASE_URL.split('/')[2]}/`, { timeout: 3000 });
+    return { online: true, ping: Date.now() - start, method: 'HTTP' };
+  } catch {
+    return { online: false, ping: null, method: 'HTTP' };
+  }
+});
+
+// Log viewer
+ipcMain.handle('get-log-content', () => {
+  if (fs.existsSync(logFile)) return fs.readFileSync(logFile, 'utf8');
+  return '';
+});
+ipcMain.handle('open-log-viewer', () => {
+  const logWindow = new BrowserWindow({
+    width: 800, height: 600, parent: mainWindow, modal: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
-  window.addEventListener('keydown', async (e) => {
-    if (e.key === 'F11') { e.preventDefault(); await ipcRenderer.invoke('window:toggleFullscreen'); }
-  });
+  logWindow.loadURL(`data:text/html,
+    <html><head><title>Launcher Logs</title>
+    <style>body{background:#1e1e2f;color:#fff;font-family:monospace;padding:10px;}pre{white-space:pre-wrap;}</style>
+    </head><body><h2>Launcher Log</h2><pre id="log"></pre><script>
+      const { ipcRenderer } = require('electron');
+      ipcRenderer.invoke('get-log-content').then(log => document.getElementById('log').innerText = log);
+    </script></body></html>`);
+});
 
-  function openSettingsModal() {
-    if (modalOverlay && settingsModal) {
-      modalOverlay.style.display = 'block';
-      settingsModal.style.display = 'flex';
-      loadSettings();
-    }
-  }
-  function closeSettingsModal() {
-    if (modalOverlay && settingsModal) {
-      modalOverlay.style.display = 'none';
-      settingsModal.style.display = 'none';
-    }
-  }
-  if (settingsButton) settingsButton.addEventListener('click', openSettingsModal);
-  if (settingsCloseButton) settingsCloseButton.addEventListener('click', closeSettingsModal);
-  if (modalOverlay) modalOverlay.addEventListener('click', closeSettingsModal);
-  if (settingsModal) settingsModal.addEventListener('click', (e) => e.stopPropagation());
+ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-  if (checkUpdatesNowButton) {
-    checkUpdatesNowButton.addEventListener('click', async () => {
-      updateStatus('Checking for launcher updates...');
-      await ipcRenderer.invoke('check-for-updates-manual');
-    });
-  }
-
-  async function loadSettings() {
-    try {
-      const settings = await ipcRenderer.invoke('get-settings');
-      if (!settings) return;
-
-      if (resolutionSelect) resolutionSelect.value = settings.resolution || '1920x1080';
-      if (displayModeSelect) displayModeSelect.value = settings.displayMode || 'fullscreen';
-      if (fpsLimitSelect) fpsLimitSelect.value = settings.fpsLimit || '60';
-      if (shaderQualitySelect) shaderQualitySelect.value = settings.shaderQuality || 'high';
-      if (cacheSizeSelect) cacheSizeSelect.value = settings.cacheSize || 'large';
-      if (soundCheckbox) soundCheckbox.checked = settings.soundEnabled !== false;
-      if (hardwareCursorCheckbox) hardwareCursorCheckbox.checked = settings.hardwareCursor || false;
-      if (skipIntroCheckbox) skipIntroCheckbox.checked = settings.skipIntro || false;
-      if (textureBakingCheckbox) textureBakingCheckbox.checked = settings.textureBaking || false;
-      if (dot3TerrainCheckbox) dot3TerrainCheckbox.checked = settings.dot3Terrain || false;
-      if (rendererSelect) rendererSelect.value = settings.renderer || 'directx';
-      if (memorySlider && memoryValue) {
-        const mem = settings.memoryMB || 4096;
-        memorySlider.value = mem;
-        memoryValue.textContent = `${mem} MB`;
-      }
-      if (cameraZoomSlider && cameraZoomValue) {
-        const zoom = settings.maxCameraZoom || 10;
-        cameraZoomSlider.value = zoom;
-        cameraZoomValue.textContent = zoom;
-      }
-      if (allowMultipleInstancesCheckbox) allowMultipleInstancesCheckbox.checked = settings.allowMultipleInstances || false;
-      if (concurrentDownloadsSelect) concurrentDownloadsSelect.value = settings.concurrentDownloads || 4;
-      if (speedLimitInput) speedLimitInput.value = settings.speedLimitMBps || 0;
-      if (additionalArgsInput) additionalArgsInput.value = settings.additionalArgs || '';
-      if (safeModeCheckbox) safeModeCheckbox.checked = settings.safeMode || false;
-      if (shareUsageCheckbox) shareUsageCheckbox.checked = settings.shareUsage || false;
-
-      if (scanModeSelect) scanModeSelect.value = settings.scanMode || 'quick';
-      if (autoLaunchCheckbox) autoLaunchCheckbox.checked = settings.autoLaunch || false;
-      if (autoUpdateCheckbox) autoUpdateCheckbox.checked = settings.autoUpdate || false;
-      if (minimizeToTrayCheckbox) minimizeToTrayCheckbox.checked = settings.minimizeToTray || false;
-      if (timeoutInput) timeoutInput.value = settings.timeout || 30;
-      if (zoomSlider && zoomValue) {
-        const savedZoom = settings.zoom || 100;
-        zoomSlider.value = savedZoom;
-        zoomValue.textContent = `${savedZoom}%`;
-        await ipcRenderer.invoke('set-zoom', savedZoom);
-      }
-    } catch (error) { console.error('Failed to load settings:', error); }
-  }
-
-  async function saveSettings() {
-    try {
-      const settings = {
-        resolution: resolutionSelect ? resolutionSelect.value : '1920x1080',
-        displayMode: displayModeSelect ? displayModeSelect.value : 'fullscreen',
-        fpsLimit: fpsLimitSelect ? parseInt(fpsLimitSelect.value, 10) : 60,
-        shaderQuality: shaderQualitySelect ? shaderQualitySelect.value : 'high',
-        cacheSize: cacheSizeSelect ? cacheSizeSelect.value : 'large',
-        soundEnabled: soundCheckbox ? soundCheckbox.checked : true,
-        hardwareCursor: hardwareCursorCheckbox ? hardwareCursorCheckbox.checked : false,
-        skipIntro: skipIntroCheckbox ? skipIntroCheckbox.checked : false,
-        textureBaking: textureBakingCheckbox ? textureBakingCheckbox.checked : false,
-        dot3Terrain: dot3TerrainCheckbox ? dot3TerrainCheckbox.checked : false,
-        renderer: rendererSelect ? rendererSelect.value : 'directx',
-        memoryMB: memorySlider ? parseInt(memorySlider.value, 10) : 4096,
-        maxCameraZoom: cameraZoomSlider ? parseInt(cameraZoomSlider.value, 10) : 10,
-        allowMultipleInstances: allowMultipleInstancesCheckbox ? allowMultipleInstancesCheckbox.checked : false,
-        concurrentDownloads: concurrentDownloadsSelect ? parseInt(concurrentDownloadsSelect.value, 10) : 4,
-        speedLimitMBps: speedLimitInput ? parseFloat(speedLimitInput.value) || 0 : 0,
-        additionalArgs: additionalArgsInput ? additionalArgsInput.value : '',
-        safeMode: safeModeCheckbox ? safeModeCheckbox.checked : false,
-        shareUsage: shareUsageCheckbox ? shareUsageCheckbox.checked : false,
-        scanMode: scanModeSelect ? scanModeSelect.value : 'quick',
-        autoLaunch: autoLaunchCheckbox ? autoLaunchCheckbox.checked : false,
-        autoUpdate: autoUpdateCheckbox ? autoUpdateCheckbox.checked : false,
-        minimizeToTray: minimizeToTrayCheckbox ? minimizeToTrayCheckbox.checked : false,
-        timeout: timeoutInput ? parseInt(timeoutInput.value, 10) || 30 : 30,
-        zoom: zoomSlider ? parseInt(zoomSlider.value, 10) : 100
-      };
-      await ipcRenderer.invoke('save-settings', settings);
-      if (installDir) {
-        await ipcRenderer.invoke('write-game-options', installDir, settings);
-      }
-      updateStatus('Settings saved successfully');
-      closeSettingsModal();
-    } catch (error) {
-      updateStatus(`Failed to save settings: ${error.message}`);
-    }
-  }
-  if (saveSettingsButton) saveSettingsButton.addEventListener('click', saveSettings);
-
-  if (memorySlider && memoryValue) {
-    memorySlider.addEventListener('input', (e) => {
-      memoryValue.textContent = `${e.target.value} MB`;
-    });
-  }
-  if (cameraZoomSlider && cameraZoomValue) {
-    cameraZoomSlider.addEventListener('input', (e) => {
-      cameraZoomValue.textContent = e.target.value;
-    });
-  }
-  if (zoomSlider && zoomValue) {
-    zoomSlider.addEventListener('input', async (e) => {
-      const val = parseInt(e.target.value, 10);
-      zoomValue.textContent = `${val}%`;
-      await ipcRenderer.invoke('set-zoom', val);
-    });
-  }
-
-  async function showInstallLocationDialog() {
-    try {
-      const selectedDir = await ipcRenderer.invoke('select-directory');
-      if (selectedDir) {
-        installDir = selectedDir;
-        if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
-        await ipcRenderer.invoke('save-install-dir', installDir);
-        updateStatus(`Install directory set: ${installDir}`);
-        checkExeStatus();
-      }
-    } catch (error) { updateStatus(`Error selecting directory: ${error.message}`); }
-  }
-  if (installLocationButton) installLocationButton.addEventListener('click', showInstallLocationDialog);
-
-  async function checkExeStatus() {
-    if (!installDir) { if (exeStatusSpan) exeStatusSpan.textContent = 'No directory'; return; }
-    const exePath = path.join(installDir, 'SWGEmu.exe');
-    if (!fs.existsSync(exePath)) { if (exeStatusSpan) exeStatusSpan.textContent = 'Not found'; return; }
-    const result = await ipcRenderer.invoke('test-exe', exePath);
-    if (exeStatusSpan) exeStatusSpan.textContent = result.valid ? `Valid (${result.version || 'v?'})` : `Invalid: ${result.error}`;
-  }
-  if (testExeButton) {
-    testExeButton.addEventListener('click', async () => {
-      if (!installDir) { updateStatus('Set install directory first'); return; }
-      const exePath = path.join(installDir, 'SWGEmu.exe');
-      if (!fs.existsSync(exePath)) { updateStatus('SWGEmu.exe not found'); return; }
-      updateStatus('Testing EXE...');
-      const result = await ipcRenderer.invoke('test-exe', exePath);
-      if (result.valid) updateStatus(`EXE valid, version: ${result.version || 'unknown'}`);
-      else updateStatus(`EXE invalid: ${result.error}`);
-      checkExeStatus();
-    });
-  }
-
-  if (playButton) {
-    playButton.addEventListener('click', async () => {
-      if (!installDir) {
-        updateStatus('Please set an install location first');
-        await showInstallLocationDialog();
-        if (!installDir) return;
-      }
-      let exePath = path.join(installDir, 'SWGEmu.exe');
-      if (!fs.existsSync(exePath)) {
-        updateStatus('SWGEmu.exe not found. Please locate manually.');
-        const picked = await ipcRenderer.invoke('select-file');
-        if (!picked) return;
-        exePath = picked;
-        installDir = path.dirname(exePath);
-        await ipcRenderer.invoke('save-install-dir', installDir);
-        if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
-      }
-      try {
-        const settings = await ipcRenderer.invoke('get-settings');
-        const desiredFps = settings.fpsLimit || 60;
-        updateStatus(`Setting max FPS to ${desiredFps}...`);
-        const patchResult = await ipcRenderer.invoke('patch-game-fps', exePath, desiredFps);
-        if (!patchResult.success) {
-          updateStatus(`Warning: Could not patch FPS: ${patchResult.error}`);
-        } else {
-          updateStatus(`FPS patched to ${desiredFps}`);
-        }
-        await ipcRenderer.invoke('write-game-options', installDir, settings);
-        const result = await ipcRenderer.invoke('launch-game', { exePath, settings });
-        updateStatus(`SWGEmu.exe launched successfully (PID: ${result.pid})`);
-      } catch (error) {
-        updateStatus(`Launch failed: ${error.message}`);
-        alert(`Failed to launch game:\n${error.message}\n\nCheck antivirus or file permissions.`);
-      }
-    });
-  }
-
-  async function startScan(mode) {
-    if (isScanning) return updateStatus('Scan already in progress');
-    isScanning = true;
-    isPaused = false;
-    if (pauseButton) pauseButton.textContent = 'PAUSE SCAN';
-    if (downloadSpeedElement) downloadSpeedElement.textContent = '';
-    lastDownloadUpdate = Date.now();
-    lastDownloadBytes = 0;
-    completedFiles = 0;
-
-    try {
-      updateStatus(`Starting ${mode} scan...`);
-      if (mode !== 'repair') await ipcRenderer.invoke('save-scan-mode', mode);
-      updateStatus('Loading file list from server...');
-      const files = await ipcRenderer.invoke('load-required-files');
-      const totalFiles = files.length;
-
-      let filesToDownload = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const localPath = path.join(installDir, file.name);
-        let valid = false;
-        if (fs.existsSync(localPath)) {
-          try {
-            const localMd5 = await ipcRenderer.invoke('check-md5', localPath);
-            valid = (localMd5 === file.md5);
-            if (!valid) console.warn(`[MD5 Mismatch] ${file.name}: local=${localMd5}, expected=${file.md5}`);
-          } catch (err) { valid = false; }
-        }
-        if (mode === 'repair' && !valid) filesToDownload.push(file);
-        else if (mode !== 'repair' && !valid) filesToDownload.push(file);
-        updateProgress(i + 1, totalFiles, 'total');
-      }
-
-      if (filesToDownload.length === 0) {
-        updateStatus('All files are up to date!');
-        isScanning = false;
-        return;
-      }
-
-      updateStatus(`Downloading ${filesToDownload.length} files with parallel streams...`);
-      await ipcRenderer.invoke('patcher-start', filesToDownload, installDir);
-
-      const fileCompleteHandler = (event, { fileId, success, error }) => {
-        completedFiles++;
-        updateProgress(completedFiles, filesToDownload.length, 'total');
-        if (!success) updateStatus(`Download error on ${fileId}: ${error}`);
-        if (completedFiles === filesToDownload.length) {
-          updateStatus('Patcher finished!');
-          isScanning = false;
-          ipcRenderer.removeListener('file-complete', fileCompleteHandler);
-          if (autoLaunchCheckbox && autoLaunchCheckbox.checked && playButton && mode !== 'repair') {
-            updateStatus('Auto-launching game...');
-            setTimeout(() => playButton.click(), 1000);
-          }
-        }
-      };
-      ipcRenderer.on('file-complete', fileCompleteHandler);
-      ipcRenderer.on('file-progress', (event, { downloaded, total }) => {
-        updateProgress(downloaded, total, 'file');
-        updateDownloadSpeed(downloaded);
+// File list, MD5, download, directory selection
+ipcMain.handle('load-required-files', async () => {
+  return new Promise((resolve, reject) => {
+    const url = BASE_URL + 'required-files.json';
+    log(`Loading file list from ${url}`);
+    const req = http.get(url, response => {
+      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+      let data = '';
+      response.on('data', chunk => data += chunk);
+      response.on('end', () => {
+        try {
+          const jsonData = JSON.parse(data);
+          if (!Array.isArray(jsonData)) throw new Error('Not an array');
+          const valid = jsonData.filter(item => item && item.name && item.url && item.md5 && item.size > 0);
+          log(`Loaded ${valid.length} valid files`);
+          resolve(valid);
+        } catch (error) { reject(new Error('JSON parse failed: ' + error.message)); }
       });
-    } catch (error) {
-      updateStatus(`Scan error: ${error.message}`);
-      console.error('Scan error:', error);
-      isScanning = false;
-    }
-  }
-
-  if (quickScanButton) quickScanButton.addEventListener('click', () => {
-    if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
-    startScan('quick');
-  });
-  if (fullScanButton) fullScanButton.addEventListener('click', () => {
-    if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
-    startScan('full');
-  });
-  if (repairButton) repairButton.addEventListener('click', () => {
-    if (!installDir) { updateStatus('Set install location first'); showInstallLocationDialog(); return; }
-    startScan('repair');
-  });
-  if (pauseButton) {
-    pauseButton.addEventListener('click', async () => {
-      if (!isScanning) return;
-      isPaused = !isPaused;
-      pauseButton.textContent = isPaused ? 'RESUME SCAN' : 'PAUSE SCAN';
-      if (isPaused) await ipcRenderer.invoke('patcher-pause');
-      else await ipcRenderer.invoke('patcher-resume');
-      updateStatus(isPaused ? 'Scan paused' : 'Scan resumed');
     });
-  }
-
-  if (clearCacheButton) clearCacheButton.addEventListener('click', async () => {
-    try {
-      await ipcRenderer.invoke('clear-cache');
-      updateStatus('Cache cleared');
-    } catch (error) { updateStatus(`Failed to clear cache: ${error.message}`); }
+    req.on('error', error => reject(new Error('Network error: ' + error.message)));
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
   });
-  if (viewLogsButton) viewLogsButton.addEventListener('click', async () => {
-    try {
-      await ipcRenderer.invoke('open-logs');
-      updateStatus('Opening logs...');
-    } catch (error) { updateStatus(`Failed to open logs: ${error.message}`); }
+});
+ipcMain.handle('check-md5', async (event, filePath) => {
+  return new Promise((resolve, reject) => {
+    if (!filePath || !fs.existsSync(filePath)) reject(new Error('File does not exist'));
+    const hash = crypto.createHash('md5');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', d => hash.update(d));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
   });
-  if (viewLogViewerButton) viewLogViewerButton.addEventListener('click', async () => {
-    await ipcRenderer.invoke('open-log-viewer');
+});
+ipcMain.handle('download-file', async (event, { url, destination, expectedMd5 }) => {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(destination);
+    const req = http.get(url, response => {
+      if (response.statusCode !== 200) { reject(new Error(`HTTP ${response.statusCode}`)); return; }
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close();
+        if (expectedMd5) {
+          const hash = crypto.createHash('md5');
+          const readStream = fs.createReadStream(destination);
+          readStream.on('data', d => hash.update(d));
+          readStream.on('end', () => {
+            const md5 = hash.digest('hex');
+            if (md5 !== expectedMd5) { fs.unlinkSync(destination); reject(new Error('MD5 mismatch')); }
+            else resolve({ path: destination, md5 });
+          });
+        } else resolve({ path: destination });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
   });
-  if (donateButton) donateButton.addEventListener('click', () => {
-    require('electron').shell.openExternal('https://www.paypal.me/Fitzpatrick251');
-    updateStatus('Opening PayPal donation page...');
-  });
+});
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Select SWG Installation Directory' });
+  return result.canceled ? null : result.filePaths[0];
+});
+ipcMain.handle('select-file', async () => {
+  const result = await dialog.showOpenDialog({ properties: ['openFile'], title: 'Select SWGEmu.exe', filters: [{ name: 'Executable', extensions: ['exe'] }] });
+  return result.canceled ? null : result.filePaths[0];
+});
 
-  async function refreshServerStatus() {
-    if (!serverStatusSpan) return;
-    try {
-      const status = await ipcRenderer.invoke('server-status');
-      if (status.online) {
-        serverStatusSpan.innerHTML = `ONLINE (${status.ping}ms via ${status.method})`;
-        serverStatusSpan.className = 'server-online';
-      } else {
-        serverStatusSpan.innerHTML = 'OFFLINE';
-        serverStatusSpan.className = 'server-offline';
-      }
-    } catch (err) {
-      serverStatusSpan.innerHTML = 'Error';
-      serverStatusSpan.className = 'server-offline';
-    }
-  }
-  if (refreshServerBtn) refreshServerBtn.addEventListener('click', refreshServerStatus);
-  setInterval(refreshServerStatus, 30000);
+// Settings management
+const getSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+ipcMain.handle('save-settings', (event, settings) => {
+  try {
+    const settingsPath = getSettingsPath();
+    const existing = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {};
+    const merged = { ...existing, ...settings };
+    fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
+    return { success: true };
+  } catch (error) { return { success: false, error: error.message }; }
+});
+ipcMain.handle('get-settings', () => {
+  const settingsPath = getSettingsPath();
+  if (fs.existsSync(settingsPath)) try { return JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch(_) { return {}; }
+  return {};
+});
+ipcMain.handle('save-install-dir', (event, dir) => {
+  const settingsPath = getSettingsPath();
+  const settings = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {};
+  settings.installDir = dir;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+});
+ipcMain.handle('get-install-dir', () => {
+  const settingsPath = getSettingsPath();
+  if (fs.existsSync(settingsPath)) try { const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); return s.installDir || null; } catch(_) { return null; }
+  return null;
+});
+ipcMain.handle('save-scan-mode', (event, mode) => {
+  const settingsPath = getSettingsPath();
+  const settings = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {};
+  settings.scanMode = mode;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+});
+ipcMain.handle('get-scan-mode', () => {
+  const settingsPath = getSettingsPath();
+  if (fs.existsSync(settingsPath)) try { const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); return s.scanMode || 'quick'; } catch(_) { return 'quick'; }
+  return 'quick';
+});
+ipcMain.handle('clear-cache', async () => {
+  try {
+    const cachePaths = [path.join(app.getPath('userData'), 'Cache'), path.join(app.getPath('userData'), 'cache'), path.join(app.getPath('userData'), 'GPUCache')];
+    let cleared = false;
+    for (const p of cachePaths) if (fs.existsSync(p)) { fs.rmSync(p, { recursive: true, force: true }); cleared = true; }
+    return { success: true, message: cleared ? 'Cache cleared' : 'Cache empty' };
+  } catch (error) { return { success: false, error: `Failed: ${error.message}` }; }
+});
+ipcMain.handle('open-logs', async () => {
+  const logPath = path.join(app.getPath('userData'), 'logs');
+  if (!fs.existsSync(logPath)) fs.mkdirSync(logPath, { recursive: true });
+  const logFileFull = path.join(logPath, 'launcher.log');
+  if (!fs.existsSync(logFileFull)) fs.writeFileSync(logFileFull, `SWG Returns Launcher Log\nCreated: ${new Date().toISOString()}\n\n`);
+  shell.openPath(logFileFull);
+  return { success: true };
+});
 
-  async function checkGameVersion() {
-    if (!gameVersionSpan) return;
-    try {
-      const versionInfo = await ipcRenderer.invoke('check-game-version');
-      if (versionInfo.error) {
-        gameVersionSpan.textContent = `Error: ${versionInfo.error}`;
-        return;
-      }
-      const local = versionInfo.localVersion || 'none';
-      const remote = versionInfo.remoteVersion;
-      gameVersionSpan.innerHTML = `${local} / ${remote} ${versionInfo.needsUpdate ? '(update available)' : ''}`;
-      if (versionInfo.needsUpdate) updateStatus('New game version available! Run a scan to update.');
-    } catch (err) {
-      gameVersionSpan.textContent = 'Check failed';
-      console.error('Game version check error:', err);
-    }
-  }
-  if (checkUpdatesBtn) checkUpdatesBtn.addEventListener('click', checkGameVersion);
-  setInterval(checkGameVersion, 600000);
-
-  async function autoDetectInstall() {
-    const detected = await ipcRenderer.invoke('detect-install-dir');
-    if (detected && !installDir) {
-      installDir = detected;
-      if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
-      await ipcRenderer.invoke('save-install-dir', installDir);
-      updateStatus(`Auto-detected install directory: ${installDir}`);
-      checkExeStatus();
-    }
-  }
-
-  ipcRenderer.on('update-available', () => updateStatus('New launcher version available. Downloading...'));
-  ipcRenderer.on('update-downloaded', () => {
-    const restart = confirm('Update downloaded. Restart now to apply?');
-    if (restart) ipcRenderer.invoke('restart-and-update');
-  });
-  ipcRenderer.on('update-not-available', () => updateStatus('Launcher is up to date.'));
-  ipcRenderer.on('update-error', (event, err) => updateStatus(`Update check failed: ${err}`));
-
-  (async function init() {
-    installDir = await ipcRenderer.invoke('get-install-dir');
-    if (installDir) {
-      if (currentDirectoryElement) currentDirectoryElement.textContent = installDir;
-      updateStatus(`Install directory: ${installDir}`);
-      checkExeStatus();
-    } else {
-      if (currentDirectoryElement) currentDirectoryElement.textContent = 'No install directory set';
-      updateStatus('Please set an install location');
-      autoDetectInstall();
-    }
-    await loadSettings();
-    await refreshMaximizeIcon();
-    refreshServerStatus();
-    checkGameVersion();
-    updateStatus('Ready');
-    console.log('[Renderer] Initialization complete');
-  })();
+process.on('uncaughtException', error => {
+  try { fs.appendFileSync(logFile, `${new Date().toISOString()} - Uncaught Exception: ${error.stack}\n`); } catch(_) {}
+});
+process.on('unhandledRejection', reason => {
+  try { fs.appendFileSync(logFile, `${new Date().toISOString()} - Unhandled Rejection: ${reason}\n`); } catch(_) {}
 });
