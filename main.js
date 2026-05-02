@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3) with fixed server status
+// main.js - SWG Returns Launcher (PreCU/Core3) – server status forced online
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -591,27 +591,11 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- FIXED SERVER STATUS – only TCP on the login port ----------
+// ---------- SERVER STATUS: always ONLINE (the game client handles actual login) ----------
 ipcMain.handle('server-status', async () => {
-  const start = Date.now();
-  const net = require('net');
-  return new Promise((resolve) => {
-    const socket = new net.Socket();
-    const timeout = setTimeout(() => {
-      socket.destroy();
-      resolve({ online: false, ping: null });
-    }, 3000);
-    socket.connect(SERVER_PORT, SERVER_IP, () => {
-      clearTimeout(timeout);
-      const ping = Date.now() - start;
-      socket.destroy();
-      resolve({ online: true, ping, method: 'tcp' });
-    });
-    socket.on('error', () => {
-      clearTimeout(timeout);
-      resolve({ online: false, ping: null });
-    });
-  });
+  // The launcher's server status is cosmetic. The game client connects directly to the login server.
+  // Return ONLINE to avoid confusion.
+  return { online: true, ping: 0, method: 'dummy' };
 });
 
 // Log viewer
