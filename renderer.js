@@ -1,4 +1,4 @@
-// renderer.js - SWG Returns Launcher (dual server status)
+// renderer.js - SWG Returns Launcher (single server status)
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +13,7 @@ function getElement(id) {
 window.addEventListener('DOMContentLoaded', () => {
   console.log('[Renderer] DOM ready, initializing...');
 
-  // DOM elements
+  // --- DOM elements ---
   const closeButton = getElement('close-button');
   const minimizeButton = getElement('minimize-button');
   const maximizeButton = getElement('maximize-button');
@@ -34,10 +34,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const statusElement = getElement('status');
   const downloadSpeedElement = getElement('download-speed');
 
-  const gameServerStatusSpan = getElement('game-server-status');
-  const patchServerStatusSpan = getElement('patch-server-status');
-  const refreshGameServerBtn = getElement('refresh-game-server');
-  const refreshPatchServerBtn = getElement('refresh-patch-server');
+  const serverStatusSpan = getElement('server-status');
+  const refreshServerBtn = getElement('refresh-server');
   const gameVersionSpan = getElement('game-version');
   const checkUpdatesBtn = getElement('check-updates');
   const exeStatusSpan = getElement('exe-status');
@@ -49,7 +47,6 @@ window.addEventListener('DOMContentLoaded', () => {
   const settingsCloseButton = getElement('settings-close');
   const saveSettingsButton = getElement('save-settings');
 
-  // Launcher updates
   const launcherVersionSpan = getElement('launcher-version');
   const checkUpdatesNowButton = getElement('check-updates-now');
 
@@ -76,7 +73,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const safeModeCheckbox = getElement('safe-mode-checkbox');
   const shareUsageCheckbox = getElement('share-usage-checkbox');
 
-  // Legacy (hidden)
+  // Legacy hidden elements
   const scanModeSelect = getElement('scan-mode-select');
   const autoLaunchCheckbox = getElement('auto-launch-checkbox');
   const autoUpdateCheckbox = getElement('auto-update-checkbox');
@@ -92,7 +89,6 @@ window.addEventListener('DOMContentLoaded', () => {
   let lastDownloadBytes = 0;
   let completedFiles = 0;
 
-  // Set launcher version
   if (launcherVersionSpan) {
     launcherVersionSpan.textContent = packageJson.version || 'v0.1.17';
   }
@@ -311,7 +307,6 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Play button (unchanged)
   if (playButton) {
     playButton.addEventListener('click', async () => {
       if (!installDir) {
@@ -461,44 +456,24 @@ window.addEventListener('DOMContentLoaded', () => {
     updateStatus('Opening PayPal donation page...');
   });
 
-  // Dual server status handlers
-  async function refreshGameServerStatus() {
-    if (!gameServerStatusSpan) return;
+  async function refreshServerStatus() {
+    if (!serverStatusSpan) return;
     try {
-      const status = await ipcRenderer.invoke('game-server-status');
+      const status = await ipcRenderer.invoke('server-status');
       if (status.online) {
-        gameServerStatusSpan.innerHTML = `ONLINE (${status.ping}ms via ${status.method})`;
-        gameServerStatusSpan.className = 'server-online';
+        serverStatusSpan.innerHTML = `ONLINE (${status.ping}ms via ${status.method})`;
+        serverStatusSpan.className = 'server-online';
       } else {
-        gameServerStatusSpan.innerHTML = 'OFFLINE';
-        gameServerStatusSpan.className = 'server-offline';
+        serverStatusSpan.innerHTML = 'OFFLINE';
+        serverStatusSpan.className = 'server-offline';
       }
     } catch (err) {
-      gameServerStatusSpan.innerHTML = 'Error';
-      gameServerStatusSpan.className = 'server-offline';
+      serverStatusSpan.innerHTML = 'Error';
+      serverStatusSpan.className = 'server-offline';
     }
   }
-  async function refreshPatchServerStatus() {
-    if (!patchServerStatusSpan) return;
-    try {
-      const status = await ipcRenderer.invoke('patch-server-status');
-      if (status.online) {
-        patchServerStatusSpan.innerHTML = `ONLINE (${status.ping}ms via ${status.method})`;
-        patchServerStatusSpan.className = 'server-online';
-      } else {
-        patchServerStatusSpan.innerHTML = 'OFFLINE';
-        patchServerStatusSpan.className = 'server-offline';
-      }
-    } catch (err) {
-      patchServerStatusSpan.innerHTML = 'Error';
-      patchServerStatusSpan.className = 'server-offline';
-    }
-  }
-  if (refreshGameServerBtn) refreshGameServerBtn.addEventListener('click', refreshGameServerStatus);
-  if (refreshPatchServerBtn) refreshPatchServerBtn.addEventListener('click', refreshPatchServerStatus);
-  // Auto-refresh every 30 seconds
-  setInterval(refreshGameServerStatus, 30000);
-  setInterval(refreshPatchServerStatus, 30000);
+  if (refreshServerBtn) refreshServerBtn.addEventListener('click', refreshServerStatus);
+  setInterval(refreshServerStatus, 30000);
 
   async function checkGameVersion() {
     if (!gameVersionSpan) return;
@@ -552,8 +527,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     await loadSettings();
     await refreshMaximizeIcon();
-    refreshGameServerStatus();
-    refreshPatchServerStatus();
+    refreshServerStatus();
     checkGameVersion();
     updateStatus('Ready');
     console.log('[Renderer] Initialization complete');
