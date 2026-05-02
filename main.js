@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU) – server status always online, version check graceful
+// main.js - SWG Returns Launcher (PreCU/Core3) – real server status via TCP, version fallback
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -230,7 +230,7 @@ ipcMain.handle('set-zoom', async (event, percent) => {
   }
 });
 
-// Game version checker – graceful on 404
+// Game version checker (points to patch server) – returns fallback values on error
 ipcMain.handle('check-game-version', async () => {
   try {
     const response = await axios.get(VERSION_URL, { timeout: 5000 });
@@ -241,7 +241,7 @@ ipcMain.handle('check-game-version', async () => {
     return { remoteVersion, localVersion, needsUpdate: remoteVersion !== localVersion };
   } catch (error) {
     log(`Version check failed: ${error.message}`, 'ERROR');
-    // Return a friendly object instead of error
+    // Return fallback values instead of an error object
     return { remoteVersion: 'unknown', localVersion: 'none', needsUpdate: false };
   }
 });
@@ -592,10 +592,27 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// ---------- SERVER STATUS: always ONLINE, no dummy method ----------
+// ---------- REAL SERVER STATUS via TCP connection to login port ----------
 ipcMain.handle('server-status', async () => {
-  // The launcher's server status is cosmetic. Return only online flag.
-  return { online: true };
+  const net = require('net');
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({ online: false, ping: null, method: 'tcp' });
+    }, 5000); // 5 second timeout
+    socket.connect(SERVER_PORT, SERVER_IP, () => {
+      clearTimeout(timeout);
+      const ping = Date.now() - start;
+      socket.destroy();
+      resolve({ online: true, ping, method: 'tcp' });
+    });
+    socket.on('error', () => {
+      clearTimeout(timeout);
+      resolve({ online: false, ping: null, method: 'tcp' });
+    });
+  });
 });
 
 // Log viewer
