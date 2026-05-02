@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU/Core3)
+// main.js - SWG Returns Launcher (PreCU/Core3) with fixed server status
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -230,7 +230,7 @@ ipcMain.handle('set-zoom', async (event, percent) => {
   }
 });
 
-// Game version checker (now points to patch server)
+// Game version checker (points to patch server)
 ipcMain.handle('check-game-version', async () => {
   try {
     const response = await axios.get(VERSION_URL, { timeout: 5000 });
@@ -248,7 +248,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg from settings - Preserves INI section format (unchanged)
+// Write options.cfg from settings - Preserves INI section format
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -591,32 +591,27 @@ ipcMain.handle('patcher-resume', () => {
   log('Patcher resumed');
 });
 
-// Server status (ping the game server)
+// ---------- FIXED SERVER STATUS – only TCP on the login port ----------
 ipcMain.handle('server-status', async () => {
   const start = Date.now();
-  try {
-    await axios.get(`http://${SERVER_IP}/`, { timeout: 3000 });
-    return { online: true, ping: Date.now() - start, method: 'http' };
-  } catch {
-    const net = require('net');
-    return new Promise(resolve => {
-      const socket = new net.Socket();
-      const timeout = setTimeout(() => {
-        socket.destroy();
-        resolve({ online: false, ping: null });
-      }, 3000);
-      socket.connect(SERVER_PORT, SERVER_IP, () => {
-        clearTimeout(timeout);
-        const ping = Date.now() - start;
-        socket.destroy();
-        resolve({ online: true, ping, method: 'tcp' });
-      });
-      socket.on('error', () => {
-        clearTimeout(timeout);
-        resolve({ online: false, ping: null });
-      });
+  const net = require('net');
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      resolve({ online: false, ping: null });
+    }, 3000);
+    socket.connect(SERVER_PORT, SERVER_IP, () => {
+      clearTimeout(timeout);
+      const ping = Date.now() - start;
+      socket.destroy();
+      resolve({ online: true, ping, method: 'tcp' });
     });
-  }
+    socket.on('error', () => {
+      clearTimeout(timeout);
+      resolve({ online: false, ping: null });
+    });
+  });
 });
 
 // Log viewer
