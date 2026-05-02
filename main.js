@@ -1,11 +1,11 @@
-// main.js - SWG Returns Launcher (PreCU) – all options, spawn launch, no arguments
+// main.js - SWG Returns Launcher (PreCU) – using exec for launch
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { exec } = require('child_process');
 const axios = require('axios');
 
 let DiscordRPC;
@@ -337,7 +337,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// Original working launch (spawn with no arguments)
+// ---------- LAUNCH USING exec (shell) – mimics command line ----------
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -345,34 +345,24 @@ ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
       return;
     }
     const exeDir = path.dirname(exePath);
-    log(`Launching: ${exePath}`);
+    // Use double quotes to handle paths with spaces
+    const command = `"${exePath}"`;
+    log(`Launching via exec: ${command}`);
     log(`Working directory: ${exeDir}`);
 
-    const gameProcess = spawn(exePath, [], {
-      cwd: exeDir,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
+    const child = exec(command, { cwd: exeDir, windowsHide: false }, (error, stdout, stderr) => {
+      if (error) {
+        log(`Exec error: ${error.message}`, 'ERROR');
+        reject(error);
+      } else {
+        log(`Exec completed (game closed). stdout: ${stdout}, stderr: ${stderr}`);
+      }
     });
 
-    gameProcess.on('error', (err) => {
-      log(`Spawn error: ${err.message}`, 'ERROR');
-      reject(err);
-    });
-
-    gameProcess.on('exit', (code) => {
-      log(`Game process exited with code ${code}`);
-    });
-
-    gameProcess.unref();
-
-    if (gameProcess.pid) {
-      updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
-      log(`Game launched with PID: ${gameProcess.pid}`);
-      resolve({ success: true, pid: gameProcess.pid });
-    } else {
-      reject(new Error('Failed to obtain process ID'));
-    }
+    child.unref();
+    updateDiscordStatus('playing', 'Playing Star Wars Galaxies');
+    log(`Launch command sent (no PID tracking)`);
+    resolve({ success: true, pid: null, method: 'exec' });
   });
 });
 
