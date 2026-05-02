@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU) – working spawn launch, all options
+// main.js - SWG Returns Launcher (PreCU) – all options, spawn launch, no arguments
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -221,7 +221,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// Write options.cfg – preserves INI format
+// Write options.cfg – preserves existing options
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
