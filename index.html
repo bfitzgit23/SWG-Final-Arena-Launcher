@@ -423,13 +423,142 @@
       </div>
     </div>
 
-    <!-- Game Settings (truncated for brevity – keep your full modal content) -->
+    <!-- Game Settings -->
     <div class="setting-group">
       <h3>🎮 Game Settings</h3>
-      <!-- ... all your existing settings elements ... -->
+      <div class="setting-item">
+        <label class="setting-label">Resolution</label>
+        <select id="resolution-select" class="setting-select">
+          <option value="800x600">800 x 600</option>
+          <option value="1024x768">1024 x 768</option>
+          <option value="1280x720">1280 x 720 (720p)</option>
+          <option value="1920x1080" selected>1920 x 1080 (1080p)</option>
+          <option value="2560x1440">2560 x 1440 (1440p)</option>
+          <option value="3840x2160">3840 x 2160 (4K)</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Display Mode</label>
+        <select id="display-mode-select" class="setting-select">
+          <option value="fullscreen">Fullscreen</option>
+          <option value="windowed">Windowed</option>
+          <option value="borderless">Borderless</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">FPS Limit</label>
+        <select id="fps-limit-select" class="setting-select">
+          <option value="30">30</option>
+          <option value="45">45</option>
+          <option value="60" selected>60</option>
+          <option value="120">120</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Shader Quality</label>
+        <select id="shader-quality-select" class="setting-select">
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+          <option value="off">Off (Safe Mode)</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Cache Size</label>
+        <select id="cache-size-select" class="setting-select">
+          <option value="small">Small</option>
+          <option value="medium">Medium</option>
+          <option value="large" selected>Large</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label><input type="checkbox" id="sound-checkbox" class="setting-checkbox"> Sound Enabled</label><br>
+        <label><input type="checkbox" id="hardware-cursor-checkbox" class="setting-checkbox"> Hardware Mouse Cursor</label><br>
+        <label><input type="checkbox" id="skip-intro-checkbox" class="setting-checkbox"> Skip Intro Video</label><br>
+        <label><input type="checkbox" id="texture-baking-checkbox" class="setting-checkbox"> Texture Baking</label><br>
+        <label><input type="checkbox" id="dot3-terrain-checkbox" class="setting-checkbox"> DOT3 Terrain</label>
+      </div>
+    </div>
+
+    <!-- Renderer & Memory -->
+    <div class="setting-group">
+      <h3>⚙️ Renderer & Memory</h3>
+      <div class="setting-item">
+        <label class="setting-label">Renderer</label>
+        <select id="renderer-select" class="setting-select">
+          <option value="directx">DirectX</option>
+          <option value="vulkan">Vulkan (experimental)</option>
+        </select>
+        <div class="setting-hint">Vulkan uses DX9K to translate DirectX 9 calls — may improve performance on modern GPUs</div>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Memory Allocation (MB)</label>
+        <input type="range" id="memory-slider" min="512" max="8192" step="256" value="4096">
+        <span id="memory-value" style="color: var(--gold); display: inline-block; margin-top: 4px;">4096 MB</span>
+        <div class="setting-hint">Sets the SWGCLIENT_MEMORY_SIZE_MB environment variable</div>
+      </div>
+    </div>
+
+    <!-- Camera & Multi-instance -->
+    <div class="setting-group">
+      <h3>🎥 Camera & Multi‑instance</h3>
+      <div class="setting-item">
+        <label class="setting-label">Max Camera Zoom</label>
+        <input type="range" id="camera-zoom-slider" min="1" max="20" step="1" value="10">
+        <span id="camera-zoom-value" style="color: var(--gold); display: inline-block; margin-top: 4px;">10</span>
+        <div class="setting-hint">Maximum free‑chase camera zoom distance</div>
+      </div>
+      <div class="setting-item">
+        <label><input type="checkbox" id="allow-multiple-instances-checkbox" class="setting-checkbox"> Allow Multiple Instances</label>
+        <div class="setting-hint">Run multiple game clients simultaneously</div>
+      </div>
+    </div>
+
+    <!-- Downloads -->
+    <div class="setting-group">
+      <h3>⬇️ Downloads</h3>
+      <div class="setting-item">
+        <label class="setting-label">Concurrent Downloads</label>
+        <select id="concurrent-downloads-select" class="setting-select">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+          <option value="6">6</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+      <div class="setting-item">
+        <label class="setting-label">Speed Limit (MB/s, 0 = unlimited)</label>
+        <input type="number" id="speed-limit-input" class="setting-input" min="0" max="100" step="1" value="0">
+      </div>
+    </div>
+
+    <!-- Launch Options -->
+    <div class="setting-group">
+      <h3>🚀 Launch Options</h3>
+      <div class="setting-item">
+        <label class="setting-label">Additional Launch Arguments</label>
+        <input type="text" id="additional-args-input" class="setting-input" placeholder="-s Station fps=60">
+        <div class="setting-hint">e.g. -s Station fps=60</div>
+      </div>
+      <div class="setting-item">
+        <label><input type="checkbox" id="safe-mode-checkbox" class="setting-checkbox"> Safe Mode</label>
+        <div class="setting-hint">Launch with minimal settings for troubleshooting</div>
+      </div>
+    </div>
+
+    <!-- Privacy -->
+    <div class="setting-group">
+      <h3>🔒 Privacy</h3>
+      <div class="setting-item">
+        <label><input type="checkbox" id="share-usage-checkbox" class="setting-checkbox"> Share usage data</label>
+        <div class="setting-hint">Help improve the launcher by sharing anonymous usage statistics and error reports</div>
+      </div>
     </div>
 
     <button class="side-button" id="save-settings">SAVE CLIENT OPTIONS</button>
+    <div class="setting-hint" style="margin-top: 10px;">These settings are written to options.cfg in your game install directory. Changes take effect on next game launch.</div>
   </div>
 
   <div class="main-content">
