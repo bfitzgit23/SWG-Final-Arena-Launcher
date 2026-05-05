@@ -4,7 +4,7 @@
   "description": "SWG-TFA Launcher",
   "main": "main.js",
   "author": "SWG-TFA_Dev",
-  "license": "CC0-1.0",re
+  "license": "CC0-1.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/bfitzgit23/SWG-TFA-Launcher"
