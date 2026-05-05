@@ -1,4 +1,4 @@
-// main.js - SWG Returns Launcher (PreCU) – preserves options.cfg sections
+// main.js - SWG Returns Launcher (PreCU) – carbonite base URL
 const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -22,7 +22,8 @@ app.commandLine.appendSwitch('force-device-scale-factor', '1');
 let mainWindow;
 let rpc;
 
-const BASE_URL = 'http://15.204.254.253/tre/';
+// --- UPDATED: carbonite subfolder ---
+const BASE_URL = 'http://15.204.254.253/tre/carbonite/';
 const VERSION_URL = `${BASE_URL}version.txt`;
 const GAME_SERVER_IP = '144.217.255.58';
 const GAME_SERVER_PORT = 44453;
@@ -221,7 +222,7 @@ ipcMain.handle('save-game-version', (event, version) => {
   fs.writeFileSync(path.join(app.getPath('userData'), 'game_version.txt'), version);
 });
 
-// ---------- FIXED: options.cfg writer that preserves sections and all content ----------
+// Write options.cfg – preserves sections (same as last working version)
 ipcMain.handle('write-game-options', async (event, installDir, settings) => {
   const optionsPath = path.join(installDir, 'options.cfg');
   try {
@@ -230,7 +231,6 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
       const content = fs.readFileSync(optionsPath, 'utf8');
       originalLines = content.split(/\r?\n/);
     } else {
-      // If no file, create a minimal default
       originalLines = [
         '# options.cfg - SWG Returns Launcher',
         '',
@@ -243,15 +243,12 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
       ];
     }
 
-    // Map launcher settings to section:key
-    // All keys are placed in [ClientGraphics] except for cache (SharedUtility) and skipIntro (ClientGame)
     const updates = {
       ClientGraphics: {
         screenWidth: parseInt(settings.resolution?.split('x')[0]) || 1920,
         screenHeight: parseInt(settings.resolution?.split('x')[1]) || 1080,
         borderlessWindow: settings.displayMode === 'borderless' ? 1 : 0,
         windowed: settings.displayMode === 'windowed' ? 1 : 0,
-        // fullscreen is not a standard key; we use borderlessWindow and windowed. Leave fullscreen out.
         useHardwareMouseCursor: settings.hardwareCursor ? 1 : 0,
         textureBaking: settings.textureBaking ? 1 : 0,
         dot3Terrain: settings.dot3Terrain ? 1 : 0,
@@ -264,7 +261,6 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
       }
     };
 
-    // Parse the file into sections
     let sections = {};
     let currentSection = null;
     let currentLines = [];
@@ -272,29 +268,20 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
     for (let line of originalLines) {
       const trimmed = line.trim();
       if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-        // Save previous section
-        if (currentSection) {
-          sections[currentSection] = currentLines;
-        }
+        if (currentSection) sections[currentSection] = currentLines;
         currentSection = trimmed.slice(1, -1);
-        currentLines = [line]; // keep the section header
+        currentLines = [line];
       } else {
         currentLines.push(line);
       }
     }
-    if (currentSection) {
-      sections[currentSection] = currentLines;
-    }
+    if (currentSection) sections[currentSection] = currentLines;
 
-    // Apply updates
     for (const [section, keys] of Object.entries(updates)) {
       if (!sections[section]) {
-        // Create new section
         sections[section] = [`[${section}]`];
-        // Add any missing keys (will be added later)
       }
       const sectionLines = sections[section];
-      // We'll process each key: if it exists, update its value; otherwise, add at end of section
       const processedKeys = new Set();
       for (let i = 0; i < sectionLines.length; i++) {
         const line = sectionLines[i];
@@ -308,26 +295,20 @@ ipcMain.handle('write-game-options', async (event, installDir, settings) => {
           }
         }
       }
-      // Add missing keys
       for (const [key, value] of Object.entries(keys)) {
         if (!processedKeys.has(key)) {
-          // Add at the end of the section, with a tab indent
           sectionLines.push(`\t${key}=${value}`);
         }
       }
     }
 
-    // Rebuild the file
     const newLines = [];
-    // Preserve order of sections as they originally appeared, plus any new ones appended
-    const orderedSections = [...Object.keys(sections)];
-    for (const section of orderedSections) {
+    for (const section of Object.keys(sections)) {
       newLines.push(...sections[section]);
-      newLines.push(''); // blank line after section (optional)
+      newLines.push('');
     }
-    // Ensure trailing newline
     fs.writeFileSync(optionsPath, newLines.join('\n'), 'utf8');
-    log(`Updated options.cfg in ${installDir} preserving sections`);
+    log(`Updated options.cfg in ${installDir}`);
     return { success: true };
   } catch (err) {
     log(`Error writing options.cfg: ${err.message}`, 'ERROR');
@@ -376,7 +357,7 @@ ipcMain.handle('test-exe', async (event, exePath) => {
   }
 });
 
-// ---------- LAUNCH: cmd /c start (exactly like double‑click) ----------
+// Launch using cmd /c start (exactly like double‑click)
 ipcMain.handle('launch-game', async (event, { exePath, settings }) => {
   return new Promise((resolve, reject) => {
     if (!fs.existsSync(exePath)) {
@@ -564,7 +545,7 @@ ipcMain.handle('open-log-viewer', () => {
 
 ipcMain.handle('detect-install-dir', () => detectInstallDir());
 
-// File list, MD5, download fallback, directory selection
+// File list, MD5, download fallback, directory selection (unchanged)
 ipcMain.handle('load-required-files', async () => {
   return new Promise((resolve, reject) => {
     const url = BASE_URL + 'required-files.json';
