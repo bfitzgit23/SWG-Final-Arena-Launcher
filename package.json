@@ -1,13 +1,13 @@
 {
-  "name": "SWG-Returns-launcher",
+  "name": "SWG-TFA-launcher",
   "version": "1.1.0",
-  "description": "SWG-Returns Launcher",
+  "description": "SWG-TFA Launcher",
   "main": "main.js",
-  "author": "SWG-Returns_Dev",
-  "license": "CC0-1.0",
+  "author": "SWG-TFA_Dev",
+  "license": "CC0-1.0",re
   "repository": {
     "type": "git",
-    "url": "https://github.com/bfitzgit23/SWG-Returns-Launcher"
+    "url": "https://github.com/bfitzgit23/SWG-TFA-Launcher"
   },
   "homepage": "https://swgreturns.github.io",
   "keywords": [
