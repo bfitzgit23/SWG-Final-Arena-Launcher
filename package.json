@@ -51,8 +51,8 @@
     "uuid": "^9.0.0"
   },
   "build": {
-    "appId": "com.SWG-Returns-Launcher.launcher",
-    "productName": "SWG-Returns Launcher",
+    "appId": "com.SWG-TFA-Launcher.launcher",
+    "productName": "SWG-The-Final-Arena Launcher",
     "directories": {
       "buildResources": "build",
       "output": "dist"
